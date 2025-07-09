@@ -1,0 +1,61 @@
+# Command-line minesweeper in Lil
+
+local mines :0  # {0,1} image; is there a mine here?
+local cover :0  # {0,1} image; is this tile covered?
+local around:0  # [0-9] image; adjacent mine count
+local deltas:flip (list 0,0) drop (3 cross 3)-1
+
+on setup size mine_count do
+ mines:image[size]
+ cover:image[size].map[() 1]
+ sys.seed:sys.ms
+ mines.pixels:random[mine_count>range prod size (-prod size)]
+ horiz:mines.copy[]
+  .merge["+" mines.copy[].translate[-1,0]]
+  .merge["+" mines.copy[].translate[ 1,0]]
+ around:horiz.copy[]
+  .merge["+" horiz.copy[].translate[0,-1]]
+  .merge["+" horiz.copy[].translate[0, 1]]
+end
+
+on display do
+ cm:range mines.size[0]
+ print["\n   %s\n   %s\n" floor .1*cm 10%cm]
+ each row ri in mines.pixels
+  print[("%02i " format ri),each mine ci in row
+   if     cover[ci,ri] "#"
+   elseif mine         "*"
+   else "_" unless around[ci,ri]
+   end
+  end]
+ end
+ print[""]
+end
+
+on reveal here do
+ if cover[here]
+  cover[here]:0
+  if !around[here] reveal @ flip here+deltas end
+ end
+end
+
+on finish outcome do
+ cover.map[() 0]
+ display[]
+ print["You %s!" outcome]
+ exit[0]
+end
+
+if !5~count args
+ print["Usage: lilt mines.lil width height mines_count"]
+else
+ setup[0+args@2,3 0+args[4]]
+ while 1
+  display[]
+  pos:"%i,%i" parse input["x,y > "]
+  reveal[pos]
+  if     mines[pos]                finish.lose
+  elseif mines.pixels~cover.pixels finish.win
+  end
+ end
+end
