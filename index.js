@@ -14,6 +14,9 @@ function createWindow () {
 
   mainWindow.loadFile('decker/js/build/decker.html');
 
+  // Open the DevTools.
+  mainWindow.webContents.openDevTools();
+
   mainWindow.webContents.on('did-finish-load', () => {
     mainWindow.webContents.executeJavaScript('toolbars_enable=1;dr.color=1;resize();');
   });
