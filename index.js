@@ -13,6 +13,10 @@ function createWindow () {
   });
 
   mainWindow.loadFile('decker/js/build/decker.html');
+
+  mainWindow.webContents.on('did-finish-load', () => {
+    mainWindow.webContents.executeJavaScript('toolbars_enable=1;dr.color=1;resize();');
+  });
 }
 
 app.whenReady().then(() => {
