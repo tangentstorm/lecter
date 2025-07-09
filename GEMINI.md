@@ -16,7 +16,11 @@ The primary goal is to wrap the existing JavaScript implementation of Decker, fo
 
 ## How to Run
 
-The JavaScript version of Decker can be run by simply opening `decker/js/decker.html` in a web browser. For the Lecter application, this is the file that the main Electron process will need to load into a `BrowserWindow`.
+The JavaScript version of Decker, `decker.html`, is a build artifact. To generate it, you must run `make web-decker` from within the `decker` directory. This will concatenate the necessary JavaScript files (`decker.js`, `lil.js`, etc.) into the final `decker.html` file.
+
+For the Lecter application, this generated `decker.html` is the file that the main Electron process will need to load into a `BrowserWindow`.
+
+I will remember to review this document after implementing each feature and update it with any new facts I learn about the project.
 
 ## Key Files & Directories
 

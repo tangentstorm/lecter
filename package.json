@@ -1,0 +1,12 @@
+{
+  "name": "lecter",
+  "version": "1.0.0",
+  "description": "An Electron wrapper for Decker.",
+  "main": "index.js",
+  "scripts": {
+    "start": "electron ."
+  },
+  "devDependencies": {
+    "electron": "^28.0.0"
+  }
+}
