@@ -1,0 +1,206 @@
+
+# tests for parse and format
+
+print["parse:"]
+
+# literals
+show["%m%none%m%n"    parse "one"   ]
+show["%m%none%m%n"    parse "two"   ]
+show["ab%%cd%m%n"     parse "ab%cd" ]
+# end of input
+show["pre%z"          parse "pr","pre","pre!","pre " ] # matched entire string?
+# ints
+show["%i %i"          parse "123 -5"                ] # basics
+show["%3i%2i%5i"      parse "12345678"              ] # fixed-width
+show["%h %h %H %H"    parse "AB ab AB ab"           ] # case insensitivity
+show["%h %h"          parse "FACEB00F ffffffff"     ] # large hex
+show["%*h%n,%*i%n%m"  parse "AB,42"                 ] # skip ints
+# floats
+show["%f%n %f%n %f%n" parse "-3 .3 0.997"           ] # basics
+show["%c %c %c"       parse "$23 -$3.5 420.69"      ] # currency ($ optional)
+show["%C %C %C"       parse "23 -3.5 420.69"        ] # plain currency (no $)
+show["%5f%f"          parse "12.3456.7"             ] # fixed-width
+show["%*f%n,%*f%n%m"  parse ".3,1.2"                ] # skip floats
+# strings
+show["%s,%s,%s"       parse "one,two,three"         ] # basics
+show["%3s%10s"        parse "ABCDE"                 ] # fixed-width
+show["%a"             parse "ABCDE"                 ] # ascii decode
+show["%a"             parse "ñÑ!"                   ] # DeckRoman extended ascii decode
+show["%3a"            parse 97                      ] # ascii decode w/ length
+show["%1a"            parse 97                      ] # ascii decode w/ length (trunc)
+show["%b,%b,%b"       parse "true,false,yes"        ] # booleans
+show["%*s,%s,%*s"     parse "one,two,three"         ] # skip strings
+# case conversion
+show["%u,%u,%u,%u"    parse "one,Two,THREE,ßẞñÑ"    ] # to uppercase
+show["%l,%l,%l,%l"    parse "one,Two,THREE,ßẞñÑ"    ] # to lowercase
+# quoted
+show["%q"             parse "\"str\\n\""            ] # basics
+show["%q%m"           parse "\"str"                 ] # unterminated
+show["%q%m"           parse "\"foo\\zbar\""         ] # bogus escape
+show["%q%m"           parse " \"nope\""             ] # %q does not skip leading whitespace
+# variable names
+show["%v%m"           parse "aGood_Nam3? suffix"    ] # alphanumeric, ?, _
+show["%v%m"           parse "3name"                 ] # may not start with a digit
+show["%v%m"           parse "ab","a",""             ] # must consume at least one character
+show["%v%n"           parse "debug\n"               ] # edge case: trailing newline
+
+# date-time
+show["%e%n"           parse "2021-01-02T03:04:57Z!" ] # epoch
+show["%p%m"           parse "2021-01-02T03:04:57Z!" ] # parts
+show["%e%m"           parse "bogus!"                ] # epoch mismatch
+show["%p%m"           parse "outtatime!"            ] # parts mismatch
+# padding
+show["%2i%2f%2h%5e"   parse " 1 2 A 1984"           ] # tolerate leading whitespace
+show["%2i%2f%2h%n%m"  parse "1@2@A@"                ] # skip trailing junk in fixed-width fields, but it fails the match
+
+# char classes
+show["%rAB"           parse "B","AB","AAAAB"        ] # zero or more As
+show["%.2rAB"         parse "ABBABACABA"            ] # zero or more [AB]
+show["%-.2rAB%s"      parse "TEXTUNTILBTEXT"        ] # zero or more [^AB]
+show["%-rC"           parse "AAABBB"                ] # zero or more [^C] consuming the entire string
+show["%*2rA%m"        parse "B","AB","AAB"          ] # match exactly two As
+show["%2.2rAB"        parse "ABC","ACC","ABBBC"     ] # read exactly two [AB]
+show["%-2.2rAB"       parse "CDC","CA","AAA"        ] # read exactly two [^AB]
+show["%-rA"           parse "   BCA"                ] # %r does not skip leading whitespace
+show["%oA"            parse "B","AB","AAB"          ] # zero or one As
+
+print["format:"]
+
+# simple forms
+show["%m%none%m%n"    format ()                     ]
+show["%m%none%m%n"    format ()                     ]
+show["ab%%cd%m%n"     format ""                     ]
+show["%b,%b,%b,%b"    format "beef",1,42            ] # booleans
+show["%i,%i,%i"       format 42,-342                ] # ints
+show["%i"             format 4294967295             ] # large int
+show["%h %H %h"       format 171,171                ] # hex ints
+show["%f:%f"          format -123.456,333           ] # natural floats
+show["%.3f/%.2f"      format -123.456,333           ] # floats with decimal places
+show["%c,%.3c"        format 3.5,-93.99             ] # currency
+show["%C,%.3C"        format 3.5,-93.99             ] # plain currency
+show["%s [%s]"        format "one","two"            ] # strings
+show["%l:%u"          format "One","Two"            ] # case conversion
+show["%l:%u"          format "Pięćßẞ","Sześćßẞ"     ] # case conversion with accents
+show["%-2.2rAB%2r!%r!"format "one","b","anylength"  ] # char class
+show["%-2.2oAB%2o!%o!"format "one","b","anylength"  ] # char class
+show["%a"             format list 65,66,67          ] # ascii chars
+show["%a"             format list 176,145,33        ] # DeckRoman extended ascii chars
+show["%a"             format list 65,10,250,-5,67   ] # invalid DeckRoman chars become '�'
+show["%2.2a"          format list 65,66,67          ] # fit ascii chars (trunc)
+show["%2a"            format list 65                ] # fit ascii chars (extend)
+show["%a"             format 65                     ] # widen scalar to ascii list if needed
+show["%q"             format "a\n\"b"               ] # quoted
+show["%v"             format "fooBar"               ] # variable
+show["%e"             format 1609556697             ] # epoch
+show["%e" format "%e" parse  "2024-08-07T12:34:56Z" ] # epoch (leap year)
+show["%e" format "%e" parse  "2025-08-07T12:34:56Z" ] # epoch (non-leap year)
+show["%p" format "%p" parse  "2021-02-03T04:05:58Z" ] # parts
+
+d.year:1984 d.month:5 d.day:25
+show["%p"             format d                      ] # partial parts
+# skips
+show["%*i|%*e|%*s|%*w|%i" format 42]
+# padding
+show["%4H %4H"        format 171,65539              ] # space pad
+show["%04H %04H"      format 171,65539              ] # zero pad
+show[":%-7s:%7s:"     format "left","right"         ] # justification
+show["%08H %08h"      format 4207849487,4294967295  ] # large hex
+# truncation
+show["%-.10e"               format 1609556697             ]
+show["%-.6s,%.6s"           format "longleft","longright" ]
+show["%3.3s|%3.3s|%3.3s"    format "A","ABC","ABCDE"      ]
+show["%-3.3s|%-3.3s|%-3.3s" format "A","ABC","ABCDE"      ]
+# embedded
+show["%%%ii" format 34]
+
+print["tabular:"]
+# crack fixed-width records into a table
+data: "apple  $1.00 1\ncherry $0.3515\nbanana $0.75 2"
+show[table ("name","price","amt") dict flip "%6s%6c%2i" parse "\n" split data]
+# make sure cracking works for single-element patterns
+show["%s!" parse "foo!","bar!"]
+show["%*4i-%*2i-%*2iT%*2i:%*2i:%*2iZ%n%m" parse "2003-invalid"]
+
+print["named:"]
+show["%[banana]i %[apple]i"  parse "11 22"                                 ] # basic named fields
+show["%[]s"                  parse "fruity"                                ] # empty name
+show["%i %[n]s %i"           parse "111 222 333"                           ] # mixed names/positionals
+show["%[one]i %[two]i"       parse "34 56","78 99"                         ] # tabular parsing
+show["%[unbounded"           parse "11 22"                                 ] # missing close bracket
+show["%[unterminated]"       parse "11 22"                                 ] # missing typecode
+show["%[name]s:%[name]s"     parse "one:two"                               ] # duplicate key
+
+show["%[banana]s %[apple]s"  format ("apple","banana") dict (22,"fruit")   ] # basic named fields
+show["%[]s"                  format (list "") dict list 234                ] # empty name
+show["%i %[n]s %i"           format (2,"n",0) dict 333,222,111             ] # mixed names/positionals
+show[      "%[one]j %[two]j" format insert two one with 111 333 222 444 end] # tabular formatting 0 (column-wise)
+show[(list "%[one]i,%[two]i")format insert two one with 111 333 222 444 end] # tabular formatting 1 (row-wise)
+show[("\n","%[one]i,%[two]i")format insert two one with 111 333 222 444 end] # tabular formatting 2 (row-wise with join)
+show["<%[no]s>:%[nope]i"     format () dict ()                             ] # missing keys
+show["%[name]s:%[name]s"     format ().name:"multiplicity"                 ] # duplicate keys
+show["%[banana]i %[apple]i"  format "not a dictionary"                     ] # inappropriate argument
+
+print["json:"]
+# formatting
+show["%j" format nil                             ]
+show["%j" format 42                              ]
+show["%j" format list 11,22,33                   ]
+show["%j" format "string\n with\"/escapes\\!"    ]
+show["%j" format "</script < /script < / script" ]
+show["%j" format ().foo:999                      ]
+show["%j" format table 11,22,33                  ]
+show["%j" format on x do 2+x end                 ]
+# parsing
+show["%j %j %j" parse "true null false"          ] # simple literals
+show["%j%n"     parse "[true,false,true]"        ] # simple list
+show["%j%n"     parse "[true false true]"        ] # list w/o delimiters
+show["%j%n"     parse "[true,false"              ] # list w/o end
+show["%j"       parse "-23.4"                    ] # simple num
+show["%j"       parse "23.9e+3"                  ] # complex json number
+show["%j%n"     parse "[12,13,@99"               ] # garbage in list
+show["%j"       parse "\"foob\""                 ] # simple string
+show["%j"       parse "\"A\\\\nB\\\\C\\/D\\\"\"" ] # simple escapes
+show["%j"       parse "\"D\\u0041B\""            ] # unicode escape
+show["%j"       parse "\"a\\u0009b\\u0009c\\n1 2\\u00093\\u00094\""] # unicode escape normalization
+show["%j"       parse "\"A\\?B\""                ] # bogus escape
+show["%j"       parse "\"AB"                     ] # unterminated string
+show["%j"       parse "{\"a\":11,\"b\":22}"      ] # simple dict
+show["%j%n"     parse "{\"a\":23,"               ] # dict w/o end
+show["%j%n"     parse "{\"a\":23,@"              ] # garbage in dict
+show["%j"       parse "{1:5,2:99}"               ] # non-string dict keys
+show["%j"       parse "{'foo':22,'bar':33}"      ] # single-quoted strings
+show["%j"       parse "{'foo':22,'ba\\'r':33}"   ] # escaped single-quote
+show["%j"       parse "'foobaz"                  ] # unterminated single-quote
+show["%j"       parse "{11: 22}"                 ] # whitespace tolerance
+show["%j"       parse "{11:22, 33:44"            ] # whitespace tolerance
+
+# fixed-width
+show["%1s%3j%1s" parse "AtrueB"                  ] # overlong literal
+show["%1s%3j%1s" parse "A12.34e5B"               ] # truncated number
+show["%1s%5j%1s" parse "A\"\\u0041\"B"           ] # truncated escape sequence
+show["A%jB%m"    parse "23B"                     ] # non-matching sequence
+
+print["love:"]
+show["%J" format ((list 11,22),(list 33,44)) dict "one","two"       ]
+show["%J" format insert a b with 11 22 33 44 end                    ]
+show["%J" format image[3,4]                                         ]
+show["%J" format sys                                                ]
+
+show["%J" parse "{[11,22]:'one',[33,44]:'two'}"                     ]
+show["%J" parse "<'a':[11,33],'b':[22,44]>"                         ]
+show[("%J" parse "[%%IMG0AAMABAAAAAA=,%%IMG0AAMABAAAAAA=]")..encoded]
+
+print["deckroman:"]
+show["%a" format list range 256]
+show["%a" parse "…ÀÁÂÃÄÅÆÇÈÉÊËÌÍÎÏÐÑÒÓÔÕÖØÙÚÛÜÝÞßàáâãäåæçèéêëìíîïðñòóôõöøùúûüýþÿĀāĂăĄąĆćĒēĘęĪīıŁłŃńŌōŐőŒœŚśŠšŪūŰűŸŹźŻżŽžȘșȚțẞ"]
+show["%j" parse "\"a\\u0170b\\u1E9Ec\""]
+show["%j" parse "\"a\\u000D\\u000Ab\""] # suppress CR even in json uncode escapes!
+
+print["recursive:"]
+show[()                            format (11,"two")                     ] # identity
+show[(list "%s.mp3")               format ("one","two","three")          ] # format a column
+show[(":","%03i")                  format 11,22,33                       ] # fuse a formatted column
+show[("(list %s)",",","%2i")       format ((list 1,2,3),(list 4,5,6))    ] # format, fuse, format
+show[(",\n","(list %s)",",","%2i") format ((list 1,2,3),(list 4,5,6))    ] # fuse, format, fuse, format
+show[(list "%u - %i")              format insert a b with "u"11 "v"22 end] # explode a table into rows
+show[("\n","%u - %i")              format insert a b with "u"11 "v"22 end] # explode a table into rows, fuse

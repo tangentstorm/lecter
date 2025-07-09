@@ -1,0 +1,1980 @@
+#######################################
+#
+#  Lilt / Lilac / Decker
+#  DOM integration test suite
+#
+#######################################
+
+on matrix_show i do
+	cw:1+9<max max i
+	f:"%%%ii" format cw
+	b:"+%s+" format (cw*count first i) take "-"
+	print[b]
+	print[("\n","|%s|","",f) format i]
+	print[b]
+end
+on image_format i do
+	i:image_matrix[i]
+	cw:1+9<max max i
+	f:"%%%ii" format cw
+	print["(%s)" format (",\n ","(list %s)",",",f) format i]
+end
+on image_matrix i do
+	r:if "image"~typeof i i.pixels else () end
+	if 0~count r list r else r end
+end
+
+#######################################
+#
+#  Test Framework
+#
+#######################################
+
+on assert_file text want got do
+	s:shell["cmp -s %s %s" format want,got] # exit code { 0:matched, 1:differed, 2:error }
+	if s.exit
+		print["test failed: %s" text]
+		print["binary file '%s' does not match '%s'" format got,want]
+		exit[1]
+	end
+	shell["rm %s" format got]
+end
+on assert_base text want got disp do
+	#print["%s..." text]
+	if !want~got
+		print["test failed: %s" text]
+		print["expected:"] disp[want]
+		print["got:"]      disp[got]
+		exit[1]
+	end
+end
+on assert text want got do
+	assert_base[text want got show]
+end
+on assert_image text want got do
+	assert_base[text want image_matrix[got] matrix_show]
+end
+
+#######################################
+#
+#  General File IO
+#
+#######################################
+
+f:read["tests/dom/bom.txt"]
+assert["read text files with a UTF-8 BOM" "Some ASCII contents after the bom!" f]
+assert["correct string length given BOM" 34 (count f)]
+
+r:"text with \"double\" and 'single' curly-quotes,\na tab: , an accented letter: ñ\nand a horrifying abomination:�\n"
+f:read["tests/dom/quotes.txt"]
+assert["read text files with illegal characters" r f]
+d:read["tests/dom/badchars.deck"]
+assert["read deck with illegal characters in a script" r d.script]
+
+r:"%a" format list 127+range 114
+f:read["tests/dom/decomposed.txt"]
+assert["read text files with decomposed unicode accents" r f]
+
+d:read["tests/dom/barenums.deck"]
+assert["read deck with non-sequential numeric card names:keys" ("0","55","2") (keys d.cards)]
+assert["read deck with non-sequential numeric card names:wids" "Fine" d.cards["55"].widgets.button1.text]
+
+#######################################
+#
+#  Card
+#
+#######################################
+
+deck:newdeck[]
+card:deck.card
+
+dattr:()
+dattr.name:    "home"
+dattr.script:  ""
+dattr.size:    512,342
+dattr.image:   "image"
+dattr.widgets: "dict"
+on cardattrs x do
+	r:()
+	r.name:    x.name
+	r.script:  x.script
+	r.size:    x.size
+	r.image:   typeof x.image
+	r.widgets: typeof x.widgets
+end
+assert["card default attributes and types" dattr cardattrs[card]]
+assert["card default image size" (512,342) card.image.size]
+assert["card parent" 1 card.parent~deck]
+
+w1:card.add["button" "thingy"]
+w2:card.add["field" "zoot"]
+assert["card add widgets" (("thingy","zoot")dict w1,w2) card.widgets]
+
+r:card.remove[w1]
+assert["card remove a widget" (().zoot:w2) card.widgets]
+assert["card removed" 1 r]
+
+w1.index:3
+assert["removed widgets are inert" (().zoot:w2) card.widgets]
+assert["removed widgets are inert" nil w1.name]
+
+r:card.remove[card]
+assert["card remove bogus value" (().zoot:w2) card.widgets]
+assert["card remove bogus value fail" r 0]
+
+deck:newdeck[]
+w1:deck.card.add["button" "w1"]
+w2:deck.card.add["button" "w2"]
+w3:deck.card.add["button" "w3"]
+w4:deck.card.add["button" "w4"]
+w5:deck.card.add["button" "w5"]
+oc:deck.add["card" "other"]
+wc:deck.card.copy[w2,w4]
+oc.paste[wc]
+assert["card bulk copy list" ("w2","w4") keys oc.widgets]
+wc:deck.card.copy[("a","b") dict w1,w3]
+oc.paste[wc]
+assert["card bulk paste dict" ("w2","w4","w1","w3") keys oc.widgets]
+deck.card.remove[w2,w4]
+assert["card bulk remove list" ("w1","w3","w5") keys deck.card.widgets]
+deck.card.remove[("a","b") dict w1,w3]
+assert["card bulk remove dict" (list "w5") keys deck.card.widgets]
+
+deck:newdeck[]
+card:deck.card
+card.name:"home"
+assert["card rename identity" "home" card.name]
+card.name:"Card Names can be anything"
+assert["card rename fancy string" "Card Names can be anything" card.name]
+card.name:""
+assert["card rename empty" "Card Names can be anything" card.name]
+
+#######################################
+#
+#  Button
+#
+#######################################
+
+deck:newdeck[]
+card:deck.card
+b:card.add["button"]
+
+# this one's a bit longer than most, since
+# it probes even the common widget properties:
+dattr:()
+dattr.name:    "button1"
+dattr.font:    deck.fonts.menu
+dattr.script:  ""
+dattr.locked:  0
+dattr.animated:0
+dattr.volatile:0
+dattr.size:    60,20
+dattr.pos:     0,0
+dattr.show:    "solid"
+dattr.text:    ""
+dattr.value:   0
+dattr.style:   "round"
+dattr.shortcut:""
+on buttonattrs x do
+	r:()
+	r.name:    x.name
+	r.font:    x.font
+	r.script:  x.script
+	r.locked:  x.locked
+	r.animated:x.animated
+	r.volatile:x.volatile
+	r.size:    x.size
+	r.pos:     x.pos
+	r.show:    x.show
+	r.text:    x.text
+	r.value:   x.value
+	r.style:   x.style
+	r.shortcut:x.shortcut
+end
+assert["button default attributes and types" dattr buttonattrs[b]]
+
+dattr.name:     b.name:     "bertram butan"
+dattr.font:     b.font:     deck.fonts.menu
+dattr.script:   b.script:   "2+3"
+dattr.locked:   b.locked:   1
+dattr.animated: b.animated: 1
+dattr.volatile: b.volatile: 1
+dattr.size:     b.size:     32,48
+dattr.pos:      b.pos:      12,34
+dattr.show:     b.show:     "invert"
+dattr.text:     b.text:     "Click Me!"
+dattr.value:    b.value:    1
+dattr.style:    b.style:    "check"
+dattr.shortcut: b.shortcut: "x"
+assert["button mutable attributes" dattr buttonattrs[b]]
+
+dattr.name:"23"             b.name: 23
+dattr.font:deck.fonts.body  b.font: "zoop"
+dattr.script:"0"            b.script: 0
+dattr.locked:1              b.locked: 99
+dattr.animated:1            b.animated: 37
+dattr.volatile:1            b.volatile: 9999
+dattr.size:0,19             b.size: -12,19
+dattr.pos:-99,0             b.pos:-99,"A"
+dattr.show:"solid"          b.show:"frizzle"
+dattr.text:""               b.text:()
+dattr.value:1               b.value:"anything"
+dattr.style:"round"         b.style:0
+dattr.shortcut:"a"          b.shortcut:"Axe"
+assert["button attribute sanitizing" dattr buttonattrs[b]]
+
+b.pos:13.5,7.9
+b.size:13.7,15.9999
+assert["widget size and position are integers" (13,7,13,15) b.pos,b.size]
+
+deck:newdeck[]
+card:deck.card
+b:card.add["button"]
+b.name:"foof"
+b.name:"foof"
+assert["button identity renaming" "foof" b.name]
+
+b.toggle[]
+assert["button toggle off" "none" b.show]
+s:b.toggle[]
+assert["button toggle on" ("solid","solid") s,b.show]
+s:(b.toggle["transparent"],b.toggle["transparent"],b.toggle["transparent"])
+assert["button toggle with mode" ("none","transparent","none") s]
+s:(b.toggle["solid" 1],b.toggle["solid" 37],b.toggle["solid" 0],b.toggle["solid" 0])
+assert["button toggle with value" ("solid","solid","none","none") s]
+s:(b.toggle["transparent" b.show],b.toggle["transparent" "solid"])
+assert["button toggle with svalue" ("none","transparent") s]
+
+assert["button parent" 1 card~b.parent]
+
+#######################################
+#
+#  Field
+#
+#######################################
+
+deck:newdeck[]
+card:deck.card
+f:card.add["field"]
+
+dattr:()
+dattr.text:      ""
+dattr.scroll:    0
+dattr.border:    1
+dattr.scrollbar: 0
+dattr.style:     "rich"
+dattr.align:     "left"
+on fieldattrs x do
+	r:()
+	r.text:      x.text
+	r.scroll:    x.scroll
+	r.border:    x.border
+	r.scrollbar: x.scrollbar
+	r.style:     x.style
+	r.align:     x.align
+end
+assert["field default attributes" dattr fieldattrs[f]]
+
+assert["field empty value"
+	insert text font arg with "" "" "" end
+	f.value
+]
+
+f.text:v:"just some\nplain text?"
+assert["field write text, read text" v f.text]
+assert["field write text, read value"
+	insert text font arg with v "" "" end
+	f.value
+]
+
+f.value:v:insert text font with "information\n" "menu" "highly relevant stuff." "" end
+assert["field write table, read text" "information\nhighly relevant stuff." f.text]
+assert["field write table, read value" (update arg:"" from v) f.value]
+
+cf:card.add["field"]
+cf.style:"code"
+assert["code fields default to a monospaced font" deck.fonts.mono cf.font]
+cf.value:f.value
+assert["non-rich text fields coalesce values into plain text"
+	insert text font arg with "information\nhighly relevant stuff." "" "" end
+	cf.value
+]
+
+cf:card.add["field"]
+cf.value:v
+cf.style:"plain"
+assert["non-rich text fields even coalesce existing values"
+	insert text font arg with "information\nhighly relevant stuff." "" "" end
+	cf.value
+]
+
+cf.style:"rich"
+ia:image[3,3]
+ib:image[4,7]
+cf.text:"plain text"
+assert["field.images of plain text"  ()         cf.images]
+cf.images:ia,ib,ia
+assert["field.images read and write" (ia,ib,ia) cf.images]
+cf.images:0
+assert["field.images bogus write"    ()         cf.images]
+
+dat.a:insert a b with 11 22 33 44 end
+cf.data:dat
+assert["field.data round-tripping 1" dat cf.data]
+cf.data:11,22,33
+assert["field.data round-tripping 2" (11,22,33) cf.data]
+
+#######################################
+#
+#  Slider
+#
+#######################################
+
+deck:newdeck[]
+card:deck.card
+s:card.add["slider"]
+
+dattr:()
+dattr.value:    0
+dattr.step:     1
+dattr.interval: 0,100
+dattr.format:   "%f"
+dattr.style:    "horiz"
+on sliderattrs x do
+	r:()
+	r.value:    x.value
+	r.step:     x.step
+	r.interval: x.interval
+	r.format:   x.format
+	r.style:    x.style
+end
+assert["slider default attributes" dattr sliderattrs[s]]
+
+s.interval: 70,30
+assert["slider normalize interval"          30,70 s.interval]
+assert["slider write interval clamps value" 30    s.value]
+
+s.value:999
+assert["slider write value clamps to interval" 70 s.value]
+
+s.step:0.25
+s.value:40.6
+assert["slider write value respects step" 40.5 s.value]
+s.step:2
+assert["slider change step reclamps value" 40 s.value]
+
+s.interval:-2,3.5
+s.step:.001
+s.value:-1.32
+write["temp.deck" deck]
+deck:read["temp.deck"]
+assert["slider round-trips with custom step" -1.32 deck.card.widgets.slider1.value]
+
+#######################################
+#
+#  Grid
+#
+#######################################
+
+deck:newdeck[]
+card:deck.card
+g:card.add["grid"]
+
+dattr:()
+dattr.value:     table ()
+dattr.scroll:    0
+dattr.row:       -1
+dattr.headers:   1
+dattr.scrollbar: 1
+dattr.lines:     1
+dattr.bycell:    0
+dattr.widths:    ()
+dattr.format:    ""
+on gridattrs x do
+	r:()
+	r.value:     x.value
+	r.scroll:    x.scroll
+	r.row:       x.row
+	r.headers:   x.headers
+	r.scrollbar: x.scrollbar
+	r.lines:     x.lines
+	r.bycell:    x.bycell
+	r.widths:    x.widths
+	r.format:    x.format
+end
+assert["grid default attributes" dattr gridattrs[g]]
+
+dattr.value:     g.value:   insert a b with 11 33 22 44 end
+dattr.scroll:    g.scroll:  42
+dattr.row:       g.row:     1
+dattr.headers:   g.headers: 0
+dattr.scrollbar: g.scrollbar: 0
+dattr.lines:     g.lines:   0
+dattr.bycell:    g.bycell:  1
+dattr.widths:    g.widths:  11,22,33
+dattr.format:    g.format:  "issj"
+assert["grid mutable attributes" dattr gridattrs[g]]
+
+dattr.value:table 69  g.value: 69
+dattr.scroll:0        g.scroll: -5
+dattr.row:-1          g.row: -9
+dattr.headers:0       g.headers:()
+dattr.scrollbar:1     g.scrollbar:23
+dattr.lines:1         g.lines:999
+dattr.bycell:1        g.bycell:9999
+dattr.widths:0,0,0    g.widths:"ABC"
+dattr.format:"123"    g.format:123
+assert["grid attribute sanitizing" dattr gridattrs[g]]
+
+g.widths:300 take 25
+assert["grid cap widths list" 255 (count g.widths)]
+
+g.value:insert a b with 11 44 22 55 33 55 end
+g.row:1
+assert["grid rowvalue" (("a","b")dict 22,55) g.rowvalue]
+g.row:-999
+assert["grid empty rowvalue" (()dict()) g.rowvalue]
+
+assert["grid default colindex" -1 g.col]
+g.col:1
+assert["grid write colindex" ("b",1) g.colname,g.col]
+g.colname:"zorch"
+assert["grid write invalid colname" (nil,-1) g.colname,g.col]
+g.colname:"a"
+assert["grid write valid colname" ("a",0) g.colname,g.col]
+g.row:2
+assert["grid read cell" (0,2) g.cell]
+assert["grid cellvalue" 33 g.cellvalue]
+g.cell:("b",1)
+assert["grid write cellvalue" (1,1) g.cell]
+g.colname:"bogus"
+assert["grid cellvalue when no column set" nil g.cellvalue]
+
+g.row:1
+g.value:insert a with end
+assert["grid row clamped empty" -1 g.row]
+
+g.value:insert a with 11 22 33 end
+g.row:15
+assert["grid row clamped max" 2 g.row]
+
+g.value:insert a b with 11 22 33 44 end
+g.row:1
+g.col:0
+g.rowvalue:("b","a")dict 99,88
+assert["grid write rowvalue" insert a b with 11 22 88 99 end g.value]
+g.cellvalue:101
+assert["grid write cellvalue" insert a b with 11 22 101 99 end g.value]
+g.row:-1
+g.cellvalue:99999
+assert["grid write cellvalue with invalid row index" insert a b with 11 22 101 99 end g.value]
+
+#######################################
+#
+#  Font
+#
+#######################################
+
+deck:newdeck[]
+f:deck.fonts.menu
+
+assert["font size" (16,13) f.size]
+assert["font space" 1 f.space]
+assert["font textsize" (61,26) f.textsize["A Quick\nBrown Fox"]]
+f.space:3
+assert["font extended" (79,26) f.textsize["A Quick\nBrown Fox"]]
+
+assert_image["font read char"
+	((list 0,0,0,0,0,0),
+	 (list 0,1,1,1,1,0),
+	 (list 1,1,0,0,1,1),
+	 (list 1,1,0,0,1,1),
+	 (list 1,1,0,0,1,1),
+	 (list 1,1,1,1,1,1),
+	 (list 1,1,0,0,1,1),
+	 (list 1,1,0,0,1,1),
+	 (list 1,1,0,0,1,1),
+	 (list 1,1,0,0,1,1),
+	 (list 0,0,0,0,0,0),
+	 (list 0,0,0,0,0,0),
+	 (list 0,0,0,0,0,0))
+	f.A
+]
+
+f.A:f.w
+assert_image["font copy char"
+	((list 0,0,0,0,0,0,0,0,0,0),
+	 (list 0,0,0,0,0,0,0,0,0,0),
+	 (list 0,0,0,0,0,0,0,0,0,0),
+	 (list 1,1,0,0,1,1,0,0,1,1),
+	 (list 1,1,0,0,1,1,0,0,1,1),
+	 (list 1,1,0,0,1,1,0,0,1,1),
+	 (list 1,1,0,0,1,1,0,0,1,1),
+	 (list 1,1,0,0,1,1,0,0,1,1),
+	 (list 1,1,0,0,1,1,0,0,1,0),
+	 (list 1,1,1,1,1,1,1,1,0,0),
+	 (list 0,0,0,0,0,0,0,0,0,0),
+	 (list 0,0,0,0,0,0,0,0,0,0),
+	 (list 0,0,0,0,0,0,0,0,0,0))
+	f.A
+]
+
+f.size:20,18
+assert_image["font resize"
+	((list 0,0,0,0,0,0),
+	 (list 0,0,0,0,0,0),
+	 (list 0,0,0,0,0,0),
+	 (list 0,1,1,1,1,0),
+	 (list 1,0,0,0,1,1),
+	 (list 0,1,1,1,1,1),
+	 (list 1,1,0,0,1,1),
+	 (list 1,1,0,0,1,1),
+	 (list 1,1,0,0,1,1),
+	 (list 0,1,1,1,1,1),
+	 (list 0,0,0,0,0,0),
+	 (list 0,0,0,0,0,0),
+	 (list 0,0,0,0,0,0),
+	 (list 0,0,0,0,0,0),
+	 (list 0,0,0,0,0,0),
+	 (list 0,0,0,0,0,0),
+	 (list 0,0,0,0,0,0),
+	 (list 0,0,0,0,0,0))
+	f.a
+]
+
+f.size:0
+assert["font minimum size" (1,1) f.size]
+f.size:-.3,2.9
+assert["font bogus size" (1,2) f.size]
+
+assert["font glyph by index" f.B.encoded f[first "%a" parse "B"].encoded]
+assert["font oob read min" image[].encoded f[ -1].encoded]
+assert["font oob read max" image[].encoded f[256].encoded]
+f[ -1]:image[]
+f[256]:image[]
+
+gi:(32+range 209),255
+assert["font glyph indices basic"                     gi  f.glyphs]
+f[65]:image[]
+assert["font glyph delete with empty" ((list 65) drop gi) f.glyphs]
+f[66]:0
+assert["font glyph delete with zero"  ((  66,65) drop gi) f.glyphs]
+
+ti:image["%%IMG0AAUAA8ioaA=="]
+f.size:ti.size
+f["ñ"]:ti
+assert["font glyph index by deckroman char" ti.encoded f["ñ"].encoded]
+
+#######################################
+#
+#  Sound
+#
+#######################################
+
+deck:newdeck[]
+snd:sound[30]
+
+assert["sound duration" (30/8000) snd.duration]
+assert["sound size"     30 snd.size]
+snd.size:12
+assert["sound shrink"   12 snd.size]
+snd.size:50
+assert["sound grow"     50 snd.size]
+snd[49]:126
+assert["sound write"    126 snd[49]]
+assert["sound oob 1"    nil snd[-5]]
+assert["sound oob 2"    nil snd[9999]]
+
+snd.size:8000
+each x in range snd.size
+	snd[x]:16*sin (440/8000)*2*pi*x # A-4, 440hz
+end
+
+if !sys.platform~"web"
+	write["temp.wav" snd]
+	assert_file["write wav" "tests/dom/a4.wav" "temp.wav"]
+
+	w:read["tests/dom/a4.wav" 10]
+	assert["read valid wav size" 7990  w.size]
+	assert["read valid wav data" (-4,-9,-13,-15,-15) w[0,5]]
+
+	w:read["tests/dom/a.wav"]
+	assert["read invalid wav type" "sound" (typeof w)]
+	assert["read invalid wav size" 0       w.size]
+end
+
+assert["sound bulk read" (-4,-9,-13,-15,-15) snd[10,5]]
+
+snd.size:5
+snd[0,5]:11,22,33,44,126
+assert["sound bulk write entire" (11,22,33,44,126) snd[0,snd.size]]
+snd[1,2]:99,88,77
+assert["sound splice" (11,99,88,77,44,126) snd[0,snd.size]]
+snd[1,3]:()
+assert["sound delete" (11,44,126) snd[0,snd.size]]
+snd[2,0]:110,-36
+assert["sound insert" (11,44,110,-36,126) snd[0,snd.size]]
+
+assert["sound encode" "%%SND0Cyxu3H4=" snd.encoded]
+assert["sound decode" (11,44,110,-36,126) sound["%%SND0Cyxu3H4="][0,5]]
+
+snd.size:5
+snd[0,5]:11,22,33,44,126
+snd.map[(22,33) dict 44,55 77]
+assert["sound map"        (77,44,55,77,77)    snd[0,5]]
+snd.map[(44,55) dict -37,-120]
+assert["sound map signed" (77,-37,-120,77,77) snd[0,5]]
+
+assert["sound histogram" ("%j" parse "{77:3,-120:1,-37:1}") snd.hist]
+
+#######################################
+#
+#  Patterns
+#
+#######################################
+
+deck:newdeck[]
+p:deck.patterns
+c:deck.card.add["canvas"]
+
+smile:"%%IMG0AAgACH6BpaWBmcN+"
+p[12]:image[smile]
+assert["pattern write/read" smile p[12].encoded]
+c.size:10,10
+c.pattern:12
+c.fill[1,5]
+c.invert[]
+assert_image["custom pattern fill"
+	((list 1,0,0,0,0,0,0,1,1,0),
+	 (list 0,1,1,1,1,1,1,0,0,1),
+	 (list 0,1,0,1,1,0,1,0,0,1),
+	 (list 0,1,0,1,1,0,1,0,0,1),
+	 (list 0,1,1,1,1,1,1,0,0,1),
+	 (list 0,1,1,0,0,1,1,0,0,1),
+	 (list 0,0,1,1,1,1,0,0,0,0),
+	 (list 1,0,0,0,0,0,0,1,1,0),
+	 (list 1,0,0,0,0,0,0,1,1,0),
+	 (list 0,1,1,1,1,1,1,0,0,1))
+	c.copy[]
+]
+
+assert["pattern anim default" (13,9,5,1,5,9) p[28]]
+p[28]:range 300
+# note: don't allow references to animated colors,
+# cap indices within valid range, and cap sequence length at 256:
+big_pattern_ref:"%j" parse "[
+	  0, 1, 2, 3, 4, 5, 6, 7, 8, 9,10,11,12,13,14,15,
+	 16,17,18,19,20,21,22,23,24,25,26,27, 0, 0, 0, 0,
+	 32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47,
+	 47,47,47,47,47,47,47,47,47,47,47,47,47,47,47,47,
+	 47,47,47,47,47,47,47,47,47,47,47,47,47,47,47,47,
+	 47,47,47,47,47,47,47,47,47,47,47,47,47,47,47,47,
+	 47,47,47,47,47,47,47,47,47,47,47,47,47,47,47,47,
+	 47,47,47,47,47,47,47,47,47,47,47,47,47,47,47,47,
+	 47,47,47,47,47,47,47,47,47,47,47,47,47,47,47,47,
+	 47,47,47,47,47,47,47,47,47,47,47,47,47,47,47,47,
+	 47,47,47,47,47,47,47,47,47,47,47,47,47,47,47,47,
+	 47,47,47,47,47,47,47,47,47,47,47,47,47,47,47,47,
+	 47,47,47,47,47,47,47,47,47,47,47,47,47,47,47,47,
+	 47,47,47,47,47,47,47,47,47,47,47,47,47,47,47,47,
+	 47,47,47,47,47,47,47,47,47,47,47,47,47,47,47,47,
+	 47,47,47,47,47,47,47,47,47,47,47,47,47,47,47,47
+]"
+assert["pattern anim write" big_pattern_ref p[28]]
+p[28]:()
+assert["pattern anim write empty" () p[28]]
+p[29]:27,28,31,32
+assert["pattern anim may not include animated colors" (27,0,0,32) p[29]]
+
+peachpuff:"%h" parse "FFDAB9"
+p[38]:peachpuff
+assert["pattern color write/read" peachpuff p[38]]
+assert["pattern tolerate bogus write" 420 p[3]:420]
+
+op:newdeck[].patterns
+assert["pattern color isolation" 202 op[38]]
+
+deck:newdeck[]
+deck.patterns[36]:999
+deck.remove[deck.patterns]
+assert["reset patterns by removing the interface from the deck" 16711831 deck.patterns[36]]
+
+#######################################
+#
+#  Canvas
+#
+#######################################
+
+deck:newdeck[]
+card:deck.card
+c:card.add["canvas"]
+assert["create new deck and canvas" "canvas" (typeof c)]
+
+dattr:()
+dattr.border:  1
+dattr.brush:   0
+dattr.pattern: 1
+dattr.size:    100,100
+dattr.font:    deck.fonts.body
+on cattrs x do
+	r:()
+	r.border:  x.border
+	r.brush:   x.brush
+	r.pattern: x.pattern
+	r.size:    x.size
+	r.font:    x.font
+end
+assert["canvas default attributes" dattr cattrs[c]]
+
+dattr.border:  c.border:  0
+dattr.brush:   c.brush:   5
+dattr.pattern: c.pattern: 23
+dattr.size:    c.size:    20,15
+dattr.font:    c.font:    deck.fonts.menu
+assert["canvas mutable attributes" dattr cattrs[c]]
+
+dattr.border:1              c.border: 23
+dattr.brush:0               c.brush: -1
+dattr.pattern:0             c.pattern: -1
+dattr.size:0,0              c.size: 5
+dattr.font:deck.fonts.body  c.font: "fake"
+assert["canvas attribute sanitizing" dattr cattrs[c]]
+
+# pre-init a background color,
+# to demonstrate clipping is working.
+c.size:10,10
+c.pattern:3
+c.fill[1,1]
+c.clip[1,1 8,8]
+
+c.pattern:1
+c.line[0,0 10,10]
+assert_image["canvas simple line"
+	((list 3,3,3,3,3,3,3,3,3,3),
+	 (list 3,1,3,3,3,3,3,3,3,3),
+	 (list 3,3,1,3,3,3,3,3,3,3),
+	 (list 3,3,3,1,3,3,3,3,3,3),
+	 (list 3,3,3,3,1,3,3,3,3,3),
+	 (list 3,3,3,3,3,1,3,3,3,3),
+	 (list 3,3,3,3,3,3,1,3,3,3),
+	 (list 3,3,3,3,3,3,3,1,3,3),
+	 (list 3,3,3,3,3,3,3,3,1,3),
+	 (list 3,3,3,3,3,3,3,3,3,3))
+	c.copy[]
+]
+
+c.pattern:9
+c.fill[2,1]
+assert_image["canvas patterned fill"
+	((list 3,3,3,3,3,3,3,3,3,3),
+	 (list 3,1,9,9,9,9,9,9,9,3),
+	 (list 3,3,1,9,9,9,9,9,9,3),
+	 (list 3,3,3,1,9,9,9,9,9,3),
+	 (list 3,3,3,3,1,9,9,9,9,3),
+	 (list 3,3,3,3,3,1,9,9,9,3),
+	 (list 3,3,3,3,3,3,1,9,9,3),
+	 (list 3,3,3,3,3,3,3,1,9,3),
+	 (list 3,3,3,3,3,3,3,3,1,3),
+	 (list 3,3,3,3,3,3,3,3,3,3))
+	c.copy[]
+]
+
+c.invert[0,0 7,10]
+assert_image["canvas invert pattern"
+	((list 3,3,3,3,3,3,3,3,3,3),
+	 (list 3,0,1,0,0,0,1,9,9,3),
+	 (list 3,1,0,0,1,0,0,9,9,3),
+	 (list 3,0,1,0,0,0,1,9,9,3),
+	 (list 3,1,0,1,0,0,0,9,9,3),
+	 (list 3,1,1,0,0,0,1,9,9,3),
+	 (list 3,1,1,1,0,1,0,9,9,3),
+	 (list 3,1,1,0,1,1,1,1,9,3),
+	 (list 3,1,0,1,1,1,1,3,1,3),
+	 (list 3,3,3,3,3,3,3,3,3,3))
+	c.copy[]
+]
+
+c.clear[0,0 5,10]
+assert_image["canvas partial clear"
+	((list 3,3,3,3,3,3,3,3,3,3),
+	 (list 3,0,0,0,0,0,1,9,9,3),
+	 (list 3,0,0,0,0,0,0,9,9,3),
+	 (list 3,0,0,0,0,0,1,9,9,3),
+	 (list 3,0,0,0,0,0,0,9,9,3),
+	 (list 3,0,0,0,0,0,1,9,9,3),
+	 (list 3,0,0,0,0,1,0,9,9,3),
+	 (list 3,0,0,0,0,1,1,1,9,3),
+	 (list 3,0,0,0,0,1,1,3,1,3),
+	 (list 3,3,3,3,3,3,3,3,3,3))
+	c.copy[]
+]
+
+c[5,5]:33
+c[5,6]:32
+c.invert[]
+assert_image["invert colors"
+	((list 3,3,3,3,3,3,3,3,3,3),
+	 (list 3,1,1,1,1,1,0,0,0,3),
+	 (list 3,1,1,1,1,1,1,0,1,3),
+	 (list 3,1,1,1,1,1,0,0,0,3),
+	 (list 3,1,1,1,1,1,1,0,1,3),
+	 (list 3,1,1,1,1,0,0,0,0,3),
+	 (list 3,1,1,1,1,1,1,0,1,3),
+	 (list 3,1,1,1,1,0,0,0,0,3),
+	 (list 3,1,1,1,1,0,0,1,0,3),
+	 (list 3,3,3,3,3,3,3,3,3,3))
+	c.copy[]
+]
+
+c.clip[]
+c.clear[]
+c.size:13,11
+c.clip[1,1 11,9]
+c.pattern:1
+c.poly[5,-3 10,9 1,8]
+assert_image["canvas clipped triangle"
+	((list 0,0,0,0,0,0,0,0,0,0,0,0,0),
+	 (list 0,0,0,0,1,1,1,0,0,0,0,0,0),
+	 (list 0,0,0,0,1,1,1,1,0,0,0,0,0),
+	 (list 0,0,0,1,1,1,1,1,0,0,0,0,0),
+	 (list 0,0,0,1,1,1,1,1,0,0,0,0,0),
+	 (list 0,0,0,1,1,1,1,1,1,0,0,0,0),
+	 (list 0,0,1,1,1,1,1,1,1,0,0,0,0),
+	 (list 0,0,1,1,1,1,1,1,1,1,0,0,0),
+	 (list 0,1,1,1,1,1,1,1,1,1,0,0,0),
+	 (list 0,0,0,0,0,0,0,0,0,0,1,0,0),
+	 (list 0,0,0,0,0,0,0,0,0,0,0,0,0))
+	c.copy[]
+]
+
+c.clear[]
+c.brush:1
+c.line[5,-3 10,9 1,6]
+assert_image["canvas clipped polyline"
+	((list 0,0,0,0,0,0,0,0,0,0,0,0,0),
+	 (list 0,0,0,0,0,0,1,1,1,0,0,0,0),
+	 (list 0,0,0,0,0,0,1,1,1,0,0,0,0),
+	 (list 0,0,0,0,0,0,0,1,1,1,0,0,0),
+	 (list 0,0,0,0,0,0,0,1,1,1,0,0,0),
+	 (list 0,1,1,0,0,0,0,1,1,1,0,0,0),
+	 (list 0,1,1,1,1,1,0,0,1,1,1,0,0),
+	 (list 0,1,1,1,1,1,1,1,1,1,1,0,0),
+	 (list 0,0,0,1,1,1,1,1,1,1,1,1,0),
+	 (list 0,0,0,0,0,0,1,1,1,1,1,1,0),
+	 (list 0,0,0,0,0,0,0,0,0,0,0,0,0))
+	c.copy[]
+]
+
+c.clear[]
+c.line[(list 7,-3),(list 1,6),(list 10,9)]
+assert_image["canvas clipped polyline list"
+	((list 0,0,0,0,0,0,0,0,0,0,0,0,0),
+	 (list 0,0,0,1,1,1,0,0,0,0,0,0,0),
+	 (list 0,0,0,1,1,1,0,0,0,0,0,0,0),
+	 (list 0,0,1,1,1,0,0,0,0,0,0,0,0),
+	 (list 0,1,1,1,0,0,0,0,0,0,0,0,0),
+	 (list 0,1,1,1,0,0,0,0,0,0,0,0,0),
+	 (list 0,1,1,1,1,1,0,0,0,0,0,0,0),
+	 (list 0,1,1,1,1,1,1,1,1,0,0,0,0),
+	 (list 0,0,0,1,1,1,1,1,1,1,1,0,0),
+	 (list 0,0,0,0,0,0,1,1,1,1,1,1,0),
+	 (list 0,0,0,0,0,0,0,0,0,0,0,0,0))
+	c.copy[]
+]
+c.brush:0
+
+c.clear[]
+c.box[3,8 5,5]
+c.box[9,3 5,5]
+c.box[2,2 1,5]
+c.box[5,2 -2,5]
+assert_image["canvas clipped boxes"
+	((list 0,0,0,0,0,0,0,0,0,0,0,0,0),
+	 (list 0,0,0,0,0,0,0,0,0,0,0,0,0),
+	 (list 0,0,1,0,1,1,0,0,0,0,0,0,0),
+	 (list 0,0,1,0,1,1,0,0,0,1,1,1,0),
+	 (list 0,0,1,0,1,1,0,0,0,1,0,0,0),
+	 (list 0,0,1,0,1,1,0,0,0,1,0,0,0),
+	 (list 0,0,1,0,1,1,0,0,0,1,0,0,0),
+	 (list 0,0,0,0,0,0,0,0,0,1,1,1,0),
+	 (list 0,0,0,1,1,1,1,1,0,0,0,0,0),
+	 (list 0,0,0,1,0,0,0,1,0,0,0,0,0),
+	 (list 0,0,0,0,0,0,0,0,0,0,0,0,0))
+	c.copy[]
+]
+
+c.clear[].box[3,8 5,5].box[9,3 5,5].box[2,2 1,5].box[5,2 -2,5]
+assert["canvas clipped and chained boxes" "%%IMG0AA0ACwAAAAAsACxwLEAsQCxAAHAfABEAAAA=" c.copy[].encoded]
+
+c.clear[]
+c.rect[3,8 5,5]
+c.rect[9,3 5,5]
+c.rect[2,2 1,5]
+c.rect[5,2 -2,5]
+assert_image["canvas clipped rects"
+	((list 0,0,0,0,0,0,0,0,0,0,0,0,0),
+	 (list 0,0,0,0,0,0,0,0,0,0,0,0,0),
+	 (list 0,0,1,0,1,1,0,0,0,0,0,0,0),
+	 (list 0,0,1,0,1,1,0,0,0,1,1,1,0),
+	 (list 0,0,1,0,1,1,0,0,0,1,1,1,0),
+	 (list 0,0,1,0,1,1,0,0,0,1,1,1,0),
+	 (list 0,0,1,0,1,1,0,0,0,1,1,1,0),
+	 (list 0,0,0,0,0,0,0,0,0,1,1,1,0),
+	 (list 0,0,0,1,1,1,1,1,0,0,0,0,0),
+	 (list 0,0,0,1,1,1,1,1,0,0,0,0,0),
+	 (list 0,0,0,0,0,0,0,0,0,0,0,0,0))
+	c.copy[]
+]
+
+c.clear[]
+c.rect[1,1 8,5]
+c.pattern:2
+c.line[1,5 8,1]
+t:c.copy[0,0 8,5]
+c.paste[t 4,5]
+assert_image["canvas copy and paste"
+	((list 0,0,0,0,0,0,0,0,0,0,0,0,0),
+	 (list 0,1,1,1,1,1,1,1,2,0,0,0,0),
+	 (list 0,1,1,1,1,1,2,2,1,0,0,0,0),
+	 (list 0,1,1,1,2,2,1,1,1,0,0,0,0),
+	 (list 0,1,2,2,1,1,1,1,1,0,0,0,0),
+	 (list 0,2,1,1,0,0,0,0,0,0,0,0,0),
+	 (list 0,0,0,0,0,1,1,1,1,1,1,1,0),
+	 (list 0,0,0,0,0,1,1,1,1,1,2,2,0),
+	 (list 0,0,0,0,0,1,1,1,2,2,1,1,0),
+	 (list 0,0,0,0,0,1,2,2,1,1,1,1,0),
+	 (list 0,0,0,0,0,0,0,0,0,0,0,0,0))
+	c.copy[]
+]
+
+c.paste[t (1,1,11,9)]
+assert_image["canvas paste scaled"
+	((list 0,0,0,0,0,0,0,0,0,0,0,0,0),
+	 (list 0,0,0,0,0,0,0,0,0,0,0,0,0),
+	 (list 0,0,0,0,0,0,0,0,0,0,0,0,0),
+	 (list 0,0,0,1,1,1,1,1,1,1,1,1,0),
+	 (list 0,0,0,1,1,1,1,1,1,1,1,1,0),
+	 (list 0,0,0,1,1,1,1,1,1,1,2,2,0),
+	 (list 0,0,0,1,1,1,1,1,1,1,2,2,0),
+	 (list 0,0,0,1,1,1,1,2,2,2,1,1,0),
+	 (list 0,0,0,1,1,1,1,2,2,2,1,1,0),
+	 (list 0,0,0,1,2,2,2,1,1,1,1,1,0),
+	 (list 0,0,0,0,0,0,0,0,0,0,0,0,0))
+	c.copy[]
+]
+
+c.clear[]
+c.clip[2,3 6,5]
+c.paste[t (1,1,11,9)]
+assert_image["canvas paste respects clip"
+	((list 0,0,0,0,0,0,0,0,0,0,0,0,0),
+	 (list 0,0,0,0,0,0,0,0,0,0,0,0,0),
+	 (list 0,0,0,0,0,0,0,0,0,0,0,0,0),
+	 (list 0,0,0,1,1,1,1,1,0,0,0,0,0),
+	 (list 0,0,0,1,1,1,1,1,0,0,0,0,0),
+	 (list 0,0,0,1,1,1,1,1,0,0,0,0,0),
+	 (list 0,0,0,1,1,1,1,1,0,0,0,0,0),
+	 (list 0,0,0,1,1,1,1,2,0,0,0,0,0),
+	 (list 0,0,0,0,0,0,0,0,0,0,0,0,0),
+	 (list 0,0,0,0,0,0,0,0,0,0,0,0,0),
+	 (list 0,0,0,0,0,0,0,0,0,0,0,0,0))
+	c.copy[]
+]
+
+c.clip[1,1 11,9]
+c.clear[]
+c.pattern:1
+c.text["abc" 1,1]
+assert_image["canvas clipped text"
+	((list 0,0,0,0,0,0,0,0,0,0,0,0,0),
+	 (list 0,0,0,0,0,0,0,0,0,0,0,0,0),
+	 (list 0,0,0,0,0,0,1,0,0,0,0,0,0),
+	 (list 0,0,0,0,0,0,1,0,0,0,0,0,0),
+	 (list 0,0,1,1,0,0,1,1,1,0,0,0,0),
+	 (list 0,0,0,0,1,0,1,0,0,1,0,1,0),
+	 (list 0,0,1,1,1,0,1,0,0,1,0,1,0),
+	 (list 0,1,0,0,1,0,1,0,0,1,0,1,0),
+	 (list 0,0,1,1,1,0,1,1,1,0,0,0,0),
+	 (list 0,0,0,0,0,0,0,0,0,0,0,0,0),
+	 (list 0,0,0,0,0,0,0,0,0,0,0,0,0))
+	c.copy[]
+]
+
+c.clear[]
+c.size:6,6
+c.pattern:1 c.box[3,3 3,3 "bottom_right"]
+c.pattern:2 c.box[3,3 3,3 "bottom_left" ]
+c.pattern:3 c.box[3,3 3,3 "top_right"   ]
+c.pattern:4 c.box[3,3 3,3 "top_left"    ] # (default)
+assert_image["canvas anchor layout"
+	((list 1,1,1,2,2,2),
+	 (list 1,0,1,2,0,2),
+	 (list 1,1,1,2,2,2),
+	 (list 3,3,3,4,4,4),
+	 (list 3,0,3,4,0,4),
+	 (list 3,3,3,4,4,4))
+	c.copy[]
+]
+
+assert["canvas read at coords" 4 c[3,3]]
+c[3,3]:6
+assert["canvas write at coords" 6 c[3,3]]
+
+deck:newdeck[]
+card:deck.card
+c:card.add["canvas"]
+assert["canvas default scale" 1.0 c.scale]
+c.scale:5
+c.size:25,50
+assert["canvas rescaled buffer size 1"  (5,10) c.copy[].size]
+assert["canvas rescaled buffer lsize 1" (5,10) c.lsize]
+c.scale:2
+assert["canvas rescaled buffer size 2"  (13,25) c.copy[].size]
+assert["canvas rescaled buffer lsize 2" (13,25) c.lsize]
+c.size:0,0
+assert["empty canvas lsize" (0,0) c.lsize]
+
+c.size:50,30
+c.scale:2
+c.lsize:100,17
+assert["canvas rescale via logical size" (200,34,100,17) c.size,c.lsize]
+
+deck:newdeck[]
+card:deck.card
+c:card.add["canvas"]
+c.size:20,13
+rt:rtext.cat[
+	rtext.make["Aa" "menu"]
+	rtext.make["A"  "body" "link"]
+]
+c.text[rt 1,1]
+assert_image["canvas rich text"
+	((list  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+	 (list  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+	 (list  0, 0, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+	 (list  0, 1, 1, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0),
+	 (list  0, 1, 1, 0, 0, 1, 1, 0, 0, 1, 1, 1, 1, 0, 0, 0, 0, 1, 0, 0),
+	 (list  0, 1, 1, 0, 0, 1, 1, 0, 1, 0, 0, 0, 1, 1, 0, 0, 1, 0, 1, 0),
+	 (list  0, 1, 1, 1, 1, 1, 1, 0, 0, 1, 1, 1, 1, 1, 0, 0, 1, 0, 1, 0),
+	 (list  0, 1, 1, 0, 0, 1, 1, 0, 1, 1, 0, 0, 1, 1, 0, 1, 1, 1, 1, 1),
+	 (list  0, 1, 1, 0, 0, 1, 1, 0, 1, 1, 0, 0, 1, 1, 0, 1, 0, 0, 0, 1),
+	 (list  0, 1, 1, 0, 0, 1, 1, 0, 1, 1, 0, 0, 1, 1, 0, 1, 0, 0, 0, 1),
+	 (list  0, 1, 1, 0, 0, 1, 1, 0, 0, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0),
+	 (list  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,19,19,19,19,19),
+	 (list  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0))
+	c.copy[]
+]
+
+c.size:5,5
+c.clear[]
+c.pattern:13
+c.fill[]
+c.invert[]
+c.pattern:1
+c.box[0,0 5,5]
+i:c.copy[]
+c.size:11,9
+c.clear[]
+rt:rtext.cat[
+	rtext.make["b" "mono"]
+	rtext.make["" "" i]
+]
+c.text[rt 0,-2]
+assert_image["canvas rich text with inline image"
+	((list 0,0,0,0,0,0,0,0,0,0,0),
+	 (list 0,0,0,0,0,0,0,0,0,0,0),
+	 (list 1,0,0,0,0,0,0,0,0,0,0),
+	 (list 1,0,0,0,0,0,1,1,1,1,1),
+	 (list 1,1,1,1,0,0,1,0,1,0,1),
+	 (list 1,0,0,0,1,0,1,1,0,1,1),
+	 (list 1,0,0,0,1,0,1,0,1,0,1),
+	 (list 1,0,0,0,1,0,1,1,1,1,1),
+	 (list 1,1,1,1,0,0,0,0,0,0,0))
+	c.copy[]
+]
+
+c.clear[]
+c.size:15,9
+c.text["hi." 0,0,15,11 "center"]
+assert_image["canvas plaintext centered"
+	((list 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0),
+	 (list 0,0,1,0,0,0,0,0,1,0,0,0,0,0,0),
+	 (list 0,0,1,0,0,0,0,0,0,0,0,0,0,0,0),
+	 (list 0,0,1,1,1,0,0,1,1,0,0,0,0,0,0),
+	 (list 0,0,1,0,0,1,0,0,1,0,0,0,0,0,0),
+	 (list 0,0,1,0,0,1,0,0,1,0,0,0,0,0,0),
+	 (list 0,0,1,0,0,1,0,0,1,0,0,0,0,0,0),
+	 (list 0,0,1,0,0,1,0,0,1,0,1,0,0,0,0),
+	 (list 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+	c.copy[]
+]
+
+deck:newdeck[]
+card:deck.card
+c:card.add["canvas"]
+c.size:5,2
+c.pattern:2
+c.fill[]
+c[0,0]:c[1,1]:3
+imga:c.copy[]
+c.size:4,4
+c.clear[]
+c.pattern:19
+c.fill[]
+c.invert[]
+imgb:c.copy[]
+c.size:10,9
+c.clear[]
+c.pattern:1
+c.rect[3,3 c.size-6]
+c.clip[1,1 c.size-2]
+c.merge[imga imgb]
+assert_image["canvas merge"
+	((list 0,0,0,0,0,0,0,0,0,0),
+	 (list 0,3,2,2,2,2,3,2,2,0),
+	 (list 0,2,2,2,2,3,2,2,2,0),
+	 (list 0,3,2,1,0,1,0,2,2,0),
+	 (list 0,2,2,1,0,1,0,2,2,0),
+	 (list 0,3,2,1,0,1,0,2,2,0),
+	 (list 0,2,2,2,2,3,2,2,2,0),
+	 (list 0,3,2,2,2,2,3,2,2,0),
+	 (list 0,0,0,0,0,0,0,0,0,0))
+	c.copy[]
+]
+
+horiz:image["%%IMG2AAgACAAIAQgCCAMIBAgFCAYIBwg="]
+vert :image["%%IMG1AAgACAABAgMEBQYHAAECAwQFBgcAAQIDBAUGBwABAgMEBQYHAAECAwQFBgcAAQIDBAUGBwABAgMEBQYHAAECAwQFBgc="]
+c.size:horiz.size
+c.clear[]
+c.paste[horiz]
+c.merge[">" vert]
+assert["canvas > merge" "%%IMG0AAgACACAwODw+Pz+" c.copy[].encoded]
+
+# ensure bounds checks work:
+c.merge[512 take image[1,1]]
+
+deck:newdeck[]
+c:deck.card.add["canvas"]
+c.size:5,7
+c.rect[0,7 5,-2.3]
+assert["rect fill negative rounding" "%%IMG2AAUABwAeAQU=" c.copy[].encoded]
+
+c:deck.card.add["canvas"]
+c.size:3,3
+c.pattern:1
+c.fill[]
+c[1,1]:29
+c.invert[]
+assert["canvas invert animated pattern" "%%IMG0AAMAAwBAAA==" c.copy[].encoded]
+
+c:deck.card.add["canvas"]
+r:rtext.make["some "],rtext.make["rtext!" "menu"]
+assert["canvas rtext size"              ( 58,13) c.textsize[r]]
+c.font:"mono"
+assert["canvas rtext size w/ font"      ( 63,13) c.textsize[r]]
+assert["canvas plaintext size"          (114,11) c.textsize["Some words to wrap!"]]
+assert["canvas plaintext size w/ width" ( 30,55) c.textsize["Some words to wrap!" 30]]
+
+c:deck.card.add["canvas"]
+i:image["%%IMG1AAcABwABAQEBAQABJyEhISMBASclJCMjAQEnJCUjIwEBKCgoIyMBASgoKCgjAQABAQEBAQE="]
+c.segment[i 1,1,9,9 2,2,3,3]
+assert["canvas segment scale" "%%IMG2AAsACwANAQcAAwEBJwEhBSMBAQEAAgEBJwElASQBJQEkASMCAQEAAgEBJwEkASUBJAElASMCAQEAAgEBJwElASQBJQEkASMCAQEAAgEBJwEkASUBJAElASMCAQEAAgEBKAUjAgEBAAIBASgGIwEBAQADAQgADA==" c.copy[0,0 11,11].encoded]
+c.clear[]
+c.segment[i 1,1,-5,-2.3 2,2,3,3]
+assert["canvas segment minscale" "%%IMG1AAYABgAAAAAAAAAAAQEBAAABJyEjAQABKCMjAQABKCgjAQAAAQEBAQ==" c.copy[0,0 6,6].encoded]
+
+c.clear[]
+c.size:8,8
+c.poly[8,0 8,4]
+assert["canvas edge clipping for polygons" (0 dict 64) c.copy[].hist]
+
+#######################################
+#
+#  Deck
+#
+#######################################
+
+deck:newdeck[]
+dattr:()
+dattr.version:  1
+dattr.locked:   0
+dattr.name:     ""
+dattr.author:   ""
+dattr.script:   ""
+dattr.patterns: "patterns"
+dattr.sounds:   "dict"
+dattr.fonts:    "dict"
+dattr.cards:    "dict"
+dattr.card:     "card"
+on deckattrs x do
+	r:()
+	r.version:  x.version
+	r.locked:   x.locked
+	r.name:     x.name
+	r.author:   x.author
+	r.script:   x.script
+	r.patterns: typeof x.patterns
+	r.sounds:   typeof x.sounds
+	r.fonts:    typeof x.fonts
+	r.cards:    typeof x.cards
+	r.card:     typeof x.card
+end
+assert["deck default attributes and types" dattr deckattrs[deck]]
+
+s1:deck.add[sound[]]
+s2:deck.add[sound[20]]
+assert["deck added sounds" (("sound1","sound2")dict s1,s2) deck.sounds]
+
+r:deck.remove[s1]
+assert["deck removed sound" (().sound2:s2) deck.sounds]
+assert["deck removed sound success" 1 r]
+
+c1:deck.card
+c2:deck.add["card" "two"]
+c3:deck.add["card" "three"]
+assert["deck added cards" (("home","two","three")dict c1,c2,c3) deck.cards]
+
+deck.card:2
+assert["navigate deck by index" "three" deck.card.name]
+deck.card:c1
+assert["navigate deck by value" "home" deck.card.name]
+deck.card:"two"
+assert["navigate deck by name" "two" deck.card.name]
+deck.card:"First"
+assert["navigate deck relative- first" "home" deck.card.name]
+deck.card:"Next"
+assert["navigate deck relative- next" "two" deck.card.name]
+deck.card:"Last"
+assert["navigate deck relative- last" "three" deck.card.name]
+deck.card:"Prev"
+assert["navigate deck relative- prev" "two" deck.card.name]
+deck.card:"Back"
+assert["navigate deck relative- back 1" "three" deck.card.name]
+deck.card:"Back"
+assert["navigate deck relative- back 2" "two" deck.card.name]
+deck.card:"Back"
+assert["navigate deck relative- back 3" "home" deck.card.name]
+
+r:deck.remove[c2]
+assert["deck removed card" (("home","three")dict c1,c3) deck.cards]
+assert["deck removed card success" 1 r]
+c2.index:3
+assert["removed cards are inert" (("home","three")dict c1,c3) deck.cards]
+assert["removed cards are inert" nil c2.name]
+
+builtins:deck.fonts,()
+f1:deck.add["font"]
+f2:deck.add["font" 13,13 "chancery"]
+assert["deck added font" (builtins,("font1","chancery")dict f1,f2) deck.fonts]
+
+r:deck.remove[f1]
+assert["deck removed font" (builtins,().chancery:f2) deck.fonts]
+assert["deck removed font success" 1 r]
+
+r:deck.remove[deck.fonts.menu]
+assert["deck does not allow removing builtin fonts" 4 (count deck.fonts)]
+assert["deck does not allow removing builtin fonts fail" 0 r]
+
+deck.card:"home"
+deck.remove[deck.card]
+assert["removing the current card from the deck" "three" deck.card.name]
+
+deck.remove[deck.card]
+assert["cannot remove the last card in the deck" 1 (count deck.cards)]
+
+deck:newdeck[]
+deck.name:"everything but the sink"
+deck.author:"just some guy"
+deck.locked:1
+o:deck.add["card" "other"]
+deck.script:"show[\"</script> is a perfectly valid string in Lil.\"]"
+deck.card.add["field" "output"].text:"A Sentence"
+icon:image[2,2].map[list 23]
+r:deck.card.add["field" "richval"]
+r.value:rtext.cat[rtext.make["Words" "mono"] rtext.make["" "" icon]]
+r.font:"mono"
+deck.card.add["button" "go"]
+deck.card.add["button" "widget with :, { and } in the name"]
+c:o.add["canvas" "drawring"]
+c.size:30,30
+c.poly[15,0 30,29 4,15]
+o.add["grid" "things"].value:insert a b with 11 "One" 22 "Two" end
+s:deck.add[sound[] "short"]
+s[0,0]:126+range 5
+f:deck.add["font" 2,3 "dingus"]
+glyph:image[2,3]
+glyph[0,0]:1 glyph[1,1]:1 glyph[0,2]:1
+f["A"]:glyph
+deck.patterns[28]:10,20,5
+deck.patterns[29]:range 300
+deck.patterns[2]:image["%%IMG0AAgACAsMDQ4PEBES"]
+write["temp.deck" deck]
+assert_file["write a basic kitchen sink." "tests/dom/sink1.deck" "temp.deck"]
+
+deck:read["tests/dom/sink1.deck"]
+assert["read a deck" "deck" typeof deck]
+assert["read a deck: metadata" ("everything but the sink","just some guy") (deck.name,deck.author)]
+assert["read a deck: card names" ("home","other") (keys deck.cards)]
+assert["read a deck: script" "show[\"</script> is a perfectly valid string in Lil.\"]" deck.script]
+assert["read a deck: widget names" ("output","richval","go","widget with :, { and } in the name") (keys deck.card.widgets)]
+assert["read a deck: widget font" (deck.fonts.mono) (deck.card.widgets.richval.font)]
+assert["read a deck: sounds" (126,127,-128,-127,-126,5) (deck.sounds.short[0,5],deck.sounds.short.size)]
+assert_image["read a deck: inline rtext image"
+	((list 23,23),
+	 (list 23,23))
+	deck.card.widgets.richval.value.arg[1]
+]
+assert_image["read a deck: custom font glyph"
+	((list 1,0),
+	 (list 0,1),
+	 (list 1,0))
+	deck.fonts.dingus["A"]
+]
+assert["read a deck: custom sparse font" (list 65) deck.fonts.dingus.glyphs]
+assert["read a deck: custom animated pattern:" (10,20,5)                 deck.patterns[28]        ]
+assert["read a deck: custom animated pattern (big):" big_pattern_ref     deck.patterns[29]        ]
+assert["read a deck: custom regular pattern:"  "%%IMG0AAgACAsMDQ4PEBES"  deck.patterns[ 2].encoded]
+
+deck:read["tests/dom/bare.deck"]
+assert["read a bare deck" "deck" typeof deck]
+assert["read a bare deck: widget names" ("pusher","outfield","expenses","frame") (keys deck.card.widgets)]
+
+deck:newdeck[]
+b:deck.card.add["button"]
+assert["deck remove widget"            1 deck.remove[b]]
+assert["sanity check widget removed"  () keys deck.card.widgets]
+assert["sanity check widget inert"   nil b.name]
+assert["deck remove inert widget"      0 deck.remove[b]]
+
+deck:newdeck[]
+ti:deck.fonts.body.b
+deck.fonts.body.A:ti
+write["temp.deck" deck]
+deck:read["temp.deck"]
+assert["decks serialize modified builtin fonts" ti.encoded deck.fonts.body.A.encoded]
+
+deck:newdeck[]
+deck.name:"Test Deck"
+assert["deck string encoding" "{deck}\nversion:1\ncard:0\nsize:[512,342]\nname:\"Test Deck\"\n\n{card:home}\n\n" deck.encoded]
+deck:newdeck[deck.encoded]
+assert["deck string decoding" "Test Deck" deck.name]
+
+#######################################
+#
+#  Names and Indices
+#
+#######################################
+
+deck:newdeck[]
+c1:deck.card
+c2:deck.add["card"]
+c3:deck.add["card"]
+assert["build unique card names" ("home","card1","card2") (c1.name,c2.name,c3.name)]
+c3.name:"home"
+assert["set unique card names" "home1" c3.name]
+assert["confirm renamed card keys" ("home","card1","home1") (keys deck.cards)]
+assert["confirm renamed card lookup" c3 deck.cards.home1]
+
+assert["read card indices" (0,1,2) (c1.index,c2.index,c3.index)]
+c2.index:0
+assert["move card to start" ("card1","home","home1") (keys deck.cards)]
+c2.index:2
+assert["move card to end"   ("home","home1","card1") (keys deck.cards)]
+
+card:deck.card
+f1:card.add["field"]
+f2:card.add["field" "unique"]
+f3:card.add["field"]
+assert["build unique widget names" ("field1","unique","field2") (f1.name,f2.name,f3.name)]
+f3.name:"unique"
+assert["set unique widget names" "unique1" f3.name]
+assert["confirm renamed widget keys" ("field1","unique","unique1") (keys card.widgets)]
+assert["confirm renamed widget lookup" f3 card.widgets.unique1]
+
+assert["read widget indices" (0,1,2) (f1.index,f2.index,f3.index)]
+f3.index:0
+assert["move widget to back"  ("unique1","field1","unique") (keys card.widgets)]
+f3.index:2
+assert["move widget to front" ("field1","unique","unique1") (keys card.widgets)]
+f2.index:1
+assert["move widget identity" ("field1","unique","unique1") (keys card.widgets)]
+f2.index:99
+assert["move widget boundary" ("field1","unique1","unique") (keys card.widgets)]
+
+deck:newdeck[]
+c1:deck.card
+c1.add["button" "clickme"]
+c2:deck.add[c1]
+assert["add card to deck: cardlist" ("home","card1") (keys deck.cards)]
+assert["add card to deck: wids"     (list "clickme") (keys c2.widgets)]
+c3:deck.add[c1 "named"]
+assert["add card to deck with name" ("home","card1","named") (keys deck.cards)]
+
+deck:newdeck[]
+f1:deck.card.add["field" "preserved"]
+f2:deck.card.add["field" "ephemeral"]
+f2.volatile:1
+f1.text:"This text is preserved."
+f2.text:"This text is discarded."
+deck.purge[]
+assert["manually purge volatiles" ("This text is preserved.","") (f1,f2)..text]
+f1.text:"This text round-trips."
+f2.text:"This text does not round-trip."
+write["temp.deck" deck]
+deck:read["temp.deck"]
+assert["volatiles do not round-trip" ("This text round-trips.","") (range deck.card.widgets)..text]
+
+#######################################
+#
+#  Events
+#
+#######################################
+
+deck:newdeck[]
+card:deck.card
+f:card.add["field" "quantity"]
+b:card.add["button" "go"]
+b.script:"on click do quantity.text:3*quantity.text end"
+f.text:2
+b.event["click"]
+assert["update field by button click" "6" f.text]
+b.event["click"]
+assert["ensure events are repeatable" "18" f.text]
+
+card.script:"on navigate x do quantity.text:\"%s???\" format x end"
+card.event["navigate" "left"]
+assert["update field by card navigate" "left???" f.text]
+
+deck:newdeck[]
+deck.script:""
+c:deck.add["card" "sharedname"]
+deck.script:"on fetch do typeof sharedname end"
+b:c.add["button" "sharedname"]
+f:c.add["field" "output"]
+b.script:"on click do output.text: (typeof sharedname),\",\",fetch[] end"
+b.event["click"]
+assert["shadowing autobound variables" "button,card" f.text]
+
+deck:newdeck[]
+card:deck.card
+field:card.add["field" "target"]
+card.script:"on change x do target.text:\"one\",x end"
+field.script:"on change x do target.text:\"nope\" send change[x,\"two\"] end"
+field.event["change" "three"]
+assert["event bubbling updates" "onethreetwo" field.text]
+
+deck:newdeck[]
+card:deck.card
+deck.add["card" "other"]
+field:card.add["field" "output"]
+field.script:"on go x do output.text:\"worked!\",x send go[1] end    on change do go[0] end"
+field.event["change"]
+assert["builtin shadowing: side-effect" "worked!0" field.text]
+assert["builtin shadowing: forwarding"  "other" deck.card.name]
+
+deck:newdeck[]
+card:deck.card
+card.script:"on click do home.name:\"zeppo\" end"
+button:card.add["button" "boop"]
+button.script:"on syntax error ignore me" # this will not execute!
+button.event["click"]
+assert["ignore invalid scripts" "zeppo" card.name]
+
+deck:newdeck[]
+f:deck.card.add["field" "out"]
+f.script:"on change do sleep[1] out.text:typeof sleep end"
+f.event["change"]
+assert["in lilt, sleep[] is present but has no effect." "function" f.text]
+
+deck:newdeck[]
+deck.name:"synthetic event tests"
+deck.author:"hamilton butters"
+f:deck.card.add["field" "out"]
+b:deck.card.add["button" "doit"]
+b.script:"on custom a b do out.text:\"%s : %i, %s!\" format a,b,deck.author end"
+b.event["custom" "str" 42]
+assert["custom event injection" "str : 42, hamilton butters!" f.text]
+
+deck.script:"on another do home.widgets.out.text:\"called by %s\" format me.name end"
+b.event["another"]
+assert["custom event inheritance" "called by doit" f.text]
+deck.cards.home.event["another"]
+assert["custom events from cards" "called by home" f.text]
+deck.event["another"]
+assert["custom events from decks" "called by synthetic event tests" f.text]
+
+d:read["examples/decks/enchilada.deck"]
+c:d.cards["Sound Loops"]
+b:c.widgets["button1"]
+b.event["click"]
+
+deck:newdeck[]
+b:deck.card.add["button" "doit"]
+b.script:"on custom x do 2+3*x end"
+r:b.event["custom" 100]
+assert["custom event rvalue" 302 r]
+
+#######################################
+#
+#  Copying and Pasting
+#
+#######################################
+
+deck:newdeck[]
+home:deck.card
+f:home.add["field" "thing"]
+f.text:"Some Nice Text"
+
+# note: the clipboard format is intended to be opaque,
+# so tests should avoid inspecting or displaying it in any way.
+copied:deck.copy[home]
+v:deck.paste[copied]
+assert["copy card: return value" "card"           (typeof v)]
+assert["copy card: added card"   ("home","card1") (keys deck.cards)]
+assert["copy card: made widgets" (list "thing")   (keys v.widgets)]
+assert["copy card: made values"  "Some Nice Text" (v.widgets.thing.text)]
+
+copied:v.copy[v.widgets.thing]
+v.widgets.thing.text:"another"
+vv:v.paste[copied]
+assert["copy widgets: return value" "field"                      (typeof first vv)]
+assert["copy widgets: added widget" ("thing","field1")           (keys v.widgets)]
+assert["copy widgets: added value"  "Some Nice Text"             vv[0].text]
+assert["copy widgets: no sharing"   ("another","Some Nice Text") (v.widgets.thing.text, v.widgets.field1.text)]
+
+deck:newdeck[]
+def:deck.add["contraption" "moveable"]
+def.description:"A Moveable Feast"
+def.add["button" "clicky"]
+m:deck.card.add["contraption" "moveable" "instance"]
+target:newdeck[]
+copied:deck.card.copy[m]
+target.card.paste[copied]
+assert["copy contraption: instance" (list "instance") (keys target.card.widgets)]
+assert["copy contraption: def"      (list "moveable") (keys target.contraptions)]
+assert["copy contraption: def wids" (list "clicky"  ) (keys target.contraptions.moveable.widgets)]
+target:newdeck[]
+copied:deck.copy[deck.cards.home]
+c:target.paste[copied]
+assert["copy contraption card: instance" (list "instance") (keys c.widgets)]
+assert["copy contraption card: def"      (list "moveable") (keys target.contraptions)]
+assert["copy contraption card: def wids" (list "clicky"  ) (keys target.contraptions.moveable.widgets)]
+
+deck:newdeck[]
+f1:deck.add["font" 7,7 "alpha"] f1["A"]:deck.fonts.mono.A
+f2:deck.add["font" 8,8 "beta" ] f2["A"]:deck.fonts.mono.B
+f3:deck.add["font" 9,9 "gamma"] f3["A"]:deck.fonts.mono.C
+b:deck.cards.home.add["button"] b.text:"clicky" b.font:f1
+f:deck.cards.home.add["field" ] f.value:(rtext.make["plain"],rtext.make[" bold" "beta"])
+def:deck.add["contraption" "fontie"]
+b2:def.add["button" "also clicky"] b2.font:f3
+s:deck.add["card" "second"]
+m:s.add["contraption" "fontie" "instance"]
+copied:deck.cards.home.copy[b,f]
+target:newdeck[]
+target.cards.home.paste[copied]
+assert["copy widgets: fonts" ("body","menu","mono","alpha","beta") (keys target.fonts)]
+copied:deck.copy[s]
+target.paste[copied]
+assert["copy card: fonts"    ("body","menu","mono","alpha","beta","gamma") (keys target.fonts)]
+assert["copied font integrity 1" deck.fonts.beta .A.encoded target.fonts.beta .A.encoded]
+assert["copied font integrity 2" deck.fonts.gamma.A.encoded target.fonts.gamma.A.encoded]
+assert["copied font integrity 3" (list@65,65) (target.fonts@("beta","gamma"))..glyphs]
+
+#######################################
+#
+#  Modules
+#
+#######################################
+
+deck:newdeck[]
+m:deck.add["module" "foof"]
+assert["new module" ("module") (typeof m)]
+
+mdef.description: m.description
+mdef.script:      m.script
+mdef.value:       m.value
+mdef.error:       m.error
+assert["module default fields" ("%j" parse "{'description':'','script':'','value':{},'error':''}") mdef]
+
+m.script:"while 1 \"this is bad\" end"
+assert["module script timeout: script" ("while 1 \"this is bad\" end")   m.script]
+assert["module script timeout: value"  (() dict ())                      m.value ]
+assert["module script timeout: error"  ("initialization took too long.") m.error ]
+
+m.script:"(\"a\",\"b\")dict 22,33"
+assert["module trivial script" (("a","b") dict 22,33) m.value]
+
+m.description:"a trivial module"
+m.name:"trivial"
+write["temp.deck" deck]
+assert_file["serialize a trivial module" "tests/dom/module.deck" "temp.deck"]
+
+ld:read["tests/dom/logger.deck"]
+assert["module data store" "keystore" (typeof ld.modules.logger.data)]
+assert["module data, external" 1.01              ld.modules.logger.data.version]
+assert["module data, keys"     ("version","log") ld.modules.logger.data.keys   ]
+ld.modules.logger.data.version:nil
+assert["module data, delete zero"   (list "log") ld.modules.logger.data.keys   ]
+ld.card.widgets.push.event["click"]
+assert["module logger demo"
+	insert time message with
+		0 "zeroth"
+		1 "first"
+		2 "second"
+		3 "third"
+	end
+	ld.card.widgets.pull.value
+]
+write["temp.deck" ld]
+assert_file["serialize a module with data" "tests/dom/logger2.deck" "temp.deck"]
+
+deck:newdeck[]
+m2:deck.add[m "namedcopy"]
+assert["module copy with name" (().namedcopy:m2) (deck.modules)]
+
+d1:newdeck[]
+m1:d1.add["module" "testy"]
+m1.version:1.1
+m1.script:"m.foof:on foof x do 2*x end"
+d2:newdeck[]
+m2:d2.add["module" "testy"]
+m2.version:1.2
+m2.script:"m.foof:on foof x do 1+3*x end"
+d3:newdeck[]
+d3.add[m1]
+assert["transplant module" (1.1,20) (d3.modules.testy.version,d3.modules.testy.value.foof[10])]
+d3.add[m2]
+assert["upgrade module in-place" (list "testy") (keys d3.modules)]
+assert["upgrade module"    (1.2,31) (d3.modules.testy.version,d3.modules.testy.value.foof[10])]
+d3.add[m1]
+assert["downgrade module in-place" (list "testy") (keys d3.modules)]
+assert["downgrade module"  (1.1,20) (d3.modules.testy.version,d3.modules.testy.value.foof[10])]
+
+#######################################
+#
+#  Contraptions
+#
+#######################################
+
+deck:newdeck[]
+
+def:deck.add["contraption" "spinner"]
+defaults:def @ "type","description","script","size","font","show"
+assert["prototype default attributes" ("prototype","","",(list 100,100),deck.fonts.body,"solid") defaults]
+assert["deck contraptions"        "dict"                  (typeof deck.contraptions)]
+assert["deck contraption content" ("prototype","spinner") (typeof deck.contraptions.spinner),(keys deck.contraptions)]
+assert["prototype parent" 1 deck.card~def.parent]
+
+def.description:"unbounded numeric picker"
+def.size:150,50
+def.attributes:insert name label type with
+	"value" "Value" "number"
+	"step"  "Step"  "number"
+end
+def.script:"
+on set_value x do value.text:0+x end
+on get_value   do 0+value.text   end
+on set_step  x do step.text:0+x  end
+on get_step    do 0+step.text    end"
+def.template:"on change do\n \nend"
+down:def.add["button" "down"]
+assert["prototype widget parent" 1 def~down.parent]
+down.text:"<"
+down.script:"on click do
+  value.text:value.text-step.text
+end"
+up:def.add["button" "up"]
+up.text:">"
+up.script:"on click do
+  value.text:value.text+step.text
+end"
+value:def.add["field" "value"]
+value.value:0
+value.locked:1
+step:def.add["field" "step"]
+step.value:1
+step.show:"none"
+
+a:deck.card.add["contraption" "spinner" "a"]
+b:deck.card.add[a "b"]
+c:deck.card.add["contraption" "bogus" "ishouldnotexist"]
+assert["contraption add bogus type" nil c]
+defaults:b @ "type","name","index","locked"
+assert["contraption default attributes" ("contraption","b",1,0) defaults]
+assert["contraption def" def b.def]
+b.value:42
+assert["contraption custom attrs get/set" (42,1) (b.value,b.step)]
+
+write["temp.deck" deck]
+assert_file["write a deck with contraptions/prototypes." "tests/dom/contraptions.deck" "temp.deck"]
+deck.remove[def]
+assert["contraption deletion" 0 (count deck.contraptions)]
+assert["contraption deletion scrubs instances" () (keys deck.card.widgets)]
+
+deck:read["tests/dom/contraptions.deck"]
+def:deck.contraptions.spinner
+assert["read contraption def" ("prototype","spinner",150,50) (def.type,def.name,def.size)]
+assert["read contraption instances" ("a","b","contraption","contraption") ((keys deck.card.widgets),(deck.card.widgets..type))]
+assert["read contraption base attr"      1 deck.card.widgets.a.step ]
+assert["read contraption instance attr" 42 deck.card.widgets.b.value]
+
+def.widgets.step.text:"15"
+def.widgets.up.event["click"]
+def.widgets.up.event["click"]
+assert["events to a prototype" "30" def.widgets.value.text]
+assert["proto update instances preserve local state"        42 deck.card.widgets.b.value]
+deck.card.widgets.a.pos:35,37
+def.update[]
+assert["proto update instances preserve instance state" (35,37) deck.card.widgets.a.pos ]
+assert["proto update instances preserve name"               "a" deck.card.widgets.a.name]
+
+def.script:"won't parse"
+assert["read contraption instance attr with broken script" nil deck.card.widgets.b.value]
+def.script:"on get_value do 34567 end"
+assert["read contraption instance attr with fixed script" 34567 deck.card.widgets.b.value]
+
+deck:newdeck[]
+def:deck.add["contraption" "recurser"]
+def.script:"on set_rec x do x.rec:x end"
+con:deck.card.add["contraption" "recurser"]
+assert["recursive custom attrs are automatically halted" con con.rec:con]
+
+deck:newdeck[]
+def:deck.add["contraption" "hardfield"]
+fix:def.add["field" "fixed"]
+fix.text:"Hard Label"
+def.script:"on get_lab do fixed.text end   on set_lab x do fixed.text:x end"
+inst:deck.card.add["contraption" "hardfield"]
+assert["contraption value inheritance before" "Hard Label" inst.lab]
+fix.text:"Another Label"
+assert["contraption value inheritance after" "Another Label" inst.lab]
+inst.lab:"Override Label"
+assert["contraption value override" "Override Label" inst.lab]
+fix.text:"Cannot Override"
+assert["contraption value non-overridden" "Override Label" inst.lab]
+
+deck:newdeck[]
+def:deck.add["contraption" "sizey"]
+def.size:12,34
+con:deck.card.add["contraption" "sizey"]
+assert["contraption inherit size" (12,34) con.size]
+con.size:45,67
+assert["contraption non-resizable" (12,34) con.size]
+def.resizable:1
+con.size:32,48
+assert["contraption is resizable" (32,48) con.size]
+def.resizable:0
+assert["contraption size snapback" (12,34) con.size]
+
+deck:newdeck[]
+def:deck.add["contraption" "dispatcher"]
+def.script:"on get_prop1 do 100+me.event[\"test\"] end on get_prop2 do 200+card.event[\"test\"] end"
+con:deck.card.add["contraption" "dispatcher"]
+con.script:"on test do 2+3 end"
+assert["contraption attribute from event"   105 con.prop1]
+assert["contraption attribute from event 2" 205 con.prop2]
+def.script:"on get_d1 do (deck,patterns) end"
+assert["contraption prop: access globals" (deck,deck.patterns) con.d1]
+
+deck:newdeck[]
+def:deck.add["contraption" "exposer"]
+f:def.add["field" "w1"]
+b:def.add["button" "w2"]
+b.script:"
+on thing1 do w1 end
+on thing2 do w3 end
+on thing4 do card.event[\"thing3\"] end
+on thing5 do card.event[\"thing6\"] end
+on thing7 do card end"
+def.script:"on get_w do w2 end"
+s:deck.card.add["slider" "w3"]
+e:deck.card.add["contraption" "exposer"]
+e.script:"
+on thing3 do w3 end
+on thing6 do card end"
+assert["prototype member event can access other inner widgets"                                  f         b.event["thing1"]]
+assert["contraption can expose member widgets"                                                  "button"  e.w.type]
+assert["contraption exposed member event can access other inner widgets"                        "field"   e.w.event["thing1"].type]
+assert["contraption exposed member event CANNOT access widgets on the container card"           nil       e.w.event["thing2"]]
+assert["contraption instance event handlers CAN access widgets on the container card"           s         e.event["thing3"]]
+assert["contraption instances CAN fire events at the container card"                            s         e.w.event["thing4"]]
+assert["prototype scripts observe 'card' as the prototype"                                      def       b.event["thing7"]]
+assert["contraption scripts observe 'card' as the contraption instance"                         e         e.w.event["thing7"]]
+assert["contraption instance event handlers observe 'card' as the container card via outside"   deck.card e.event["thing6"]]
+assert["contraption instance event handlers observe 'card' as the container card via inside"    deck.card e.w.event["thing5"]]
+
+d1:newdeck[]
+p1:d1.add["contraption" "port"]
+p1.version:1.3
+p1.add["field" "v"]
+p1.script:"
+on get_val do v.text end
+on set_val x do v.text:x end
+on get_foof do
+ on foof x do 2*x end
+end
+"
+d2:newdeck[]
+p2:d2.add["contraption" "port"]
+p2.version:1.5
+p2.add["field" "v"]
+p2.script:"
+on get_val do v.text end
+on set_val x do v.text:x end
+on get_foof do
+ on foof x do 1+3*x end
+end
+"
+d3:newdeck[]
+d3.add[p1]
+fa:d3.card.add["contraption" "port" "alice"]
+fb:d3.card.add["contraption" "port" "betty"]
+fc:d3.card.add["field" "cindy"]
+fa.val:"Alice's Value"
+fb.val:"Betty's Value"
+fc.text:"Cindy Is Not a Contraption"
+assert["transplanted prototype attrs" (("alice","betty","cindy")dict "Alice's Value","Betty's Value",nil) (d3.card.widgets..val)]
+assert["transplanted prototype funcs" (10) (fa.foof[5])]
+d3.add[p2]
+assert["upgraded prototype"   (1.5,"port") (d3.contraptions.port.version,keys d3.contraptions)]
+assert["upgraded prototype attrs"     (("alice","betty","cindy")dict "Alice's Value","Betty's Value",nil) (d3.card.widgets..val)]
+assert["upgraded prototype funcs"     (16) (fa.foof[5])]
+d3.add[p1]
+assert["downgraded prototype" (1.3,"port") (d3.contraptions.port.version,keys d3.contraptions)]
+assert["downgraded prototype attrs"   (("alice","betty","cindy")dict "Alice's Value","Betty's Value",nil) (d3.card.widgets..val)]
+assert["downgraded prototype funcs"   (10) (fa.foof[5])]
+d4:newdeck[]
+copied:d3.card.copy[fa,fb]
+d4.card.paste[copied]
+assert["install prototype via paste" 1.3 d4.contraptions.port.version]
+d3.add[p2]
+copied:d3.card.copy[fb]
+d4.card.paste[copied]
+assert["upgrade prototype via paste" 1.5 d4.contraptions.port.version]
+d3.add[p1]
+copied:d3.card.copy[fa]
+d4.card.paste[copied]
+assert["prototypes do NOT downgrade via paste" 1.5 d4.contraptions.port.version]
+assert["prototype paste update in-place" (list "port") (keys d4.contraptions)]
+assert["prototype paste final arrangement"
+	(("alice","betty","port1","port2") dict ("Alice's Value","Betty's Value","Betty's Value","Alice's Value"))
+	d4.card.widgets..val
+]
+
+d:newdeck[]
+d.card.name:"collision"
+d.card.script:"# the card script"
+c:d.add["contraption" "collision"]
+c.script:"# the proto script"
+write["temp.deck" d]
+d:read["temp.deck"]
+assert["name collision card script disambiguation" "# the card script"  (d.card                  .script)]
+assert["name collision card script disambiguation" "# the proto script" (d.contraptions.collision.script)]
+
+#######################################
+#
+#  Lilt features
+#
+#######################################
+
+if !sys.platform~"web"
+	alpha:999
+	i:import["tests/dom/import.lil"]
+	assert["import keys" ("triple","alpha","beta") (keys i)]
+	assert["import apply" ("A","A","A") i.triple["A"]]
+	assert["import isolated" 999 alpha]
+	assert["import nonexistent file" nil import["does_not_exist.lil"]]
+
+	i:import["examples/decks/bignums.deck"]
+	assert["import deck keys" (list "bn") (keys i)]
+	assert["import deck module keys" ("make","equal","more","less","add","sub","mul","divmod","div","mod","sumall","prodall","minall","maxall","format_plain","format_commas","format_name") (keys i.bn)]
+	bn:i.bn
+	assert["bignum make" (1,2,3,4,5,6,7) bn.make["-1,234,567"]]
+	assert["bignum div"  (3,6,2) bn.div["80087" "221"]]
+end
+
+#######################################
+#
+#  Brushes
+#
+#######################################
+
+deck:newdeck[]
+c:deck.card.add["canvas"]
+c.size:15,11
+deck.card.script:"
+	on install do
+		brush[\"star\" image[\"%%IMG0AAkACQgAHAAcAP+AfwA+AH8AdwDjgA==\"]]
+	end
+"
+deck.card.event["install"]
+c.brush:"star"
+assert["custom brush index by name" 24 c.brush]
+c.line[(5,5) (9,5)]
+assert["custom brush line: star" "%%IMG0AA8ACwAAB8AP4A/gf/w/+B/wP/g/+H/8AAA=" c.copy[].encoded]
+
+deck.card.script:"
+	on install do
+		brush[\"diag\" image[\"%%IMG0AAIAAkCA\"]]
+	end
+"
+deck.card.event["install"]
+c.clear[]
+c.brush:"diag"
+c.box[1,1 13,9]
+assert["custom brush box: diag" "%%IMG0AA8AC3/8//zADMAMwAzADMAMwAz//P/4AAA=" c.copy[].encoded]
+
+deck.card.script:"
+	on install do
+		brush[\"color\" image[\"%%IMG1AAMAAiMoLyEnAA==\"]]
+	end
+"
+deck.card.event["install"]
+c.clear[]
+c.brush:"color"
+c.box[1,1 13,9]
+assert["custom brush box: color" "%%IMG2AA8ACyMBKAEBASMKKAEBASMBKAEBASEJIwEoAQEBIwEoAQEBAAkjASgBAQEjASgBAQEACSMBKAEBASMBKAEBAQAJIwEoAQEBIwEoAQEBAAkjASgBAQEjASgBAQEACSMBKAEBASMBKAEBAQAJIwEoAQEBIwEoAQEBIwooAQEBIQEnASELJwEAEA==" c.copy[].encoded]
+
+deck.card.script:"
+	on install do
+		i:0
+		brush[on dotted do
+			i:!i
+			if i image[1,1].map[0 dict 1] end
+		end]
+	end
+"
+deck.card.event["install"]
+c.clear[]
+c.brush:"dotted"
+c.line[1,1 13,9]
+assert["custom brush line: dotted" "%%IMG0AA8ACwAAQAAQAAAABAABAABAAAAAEAAEAAA=" c.copy[].encoded]
+
+deck.card.script:"on install do brush[] end"
+assert["custom brush enumeration" ("star","diag","color","dotted") (keys deck.card.event["install"])]
+
+#######################################
+#
+#  Misc
+#
+#######################################
+
+deck:read["tests/dom/cursed.deck"]
+assert["cursed script id"    "2+3"                          deck.script                              ]
+assert["cursed card names"   ("home","__proto__")           (keys deck.cards                        )]
+assert["cursed card content" "click meeee"                  (deck.cards.__proto__.widgets.but.text  )]
+assert["cursed modules"      "a deeply cursed module."      (deck.modules.__proto__.description     )]
+assert["cursed prototypes"   "a deeply cursed contraption." (deck.contraptions.__proto__.description)]
+
+#######################################
+#
+#  Wrap Up
+#
+#######################################
+
+if 0~assert
+	print["internal error; environment corruption!"]
+else
+	print["all dom tests passed."]
+end
