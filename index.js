@@ -1,5 +1,6 @@
 const { app, BrowserWindow } = require('electron');
 const path = require('path');
+const START_DECK = 'lecter-deck.html'
 
 function createWindow () {
   const mainWindow = new BrowserWindow({
@@ -12,13 +13,14 @@ function createWindow () {
     }
   });
 
-  mainWindow.loadFile('decker/js/build/decker.html');
+  mainWindow.loadFile(START_DECK);
 
   // Open the DevTools.
   mainWindow.webContents.openDevTools();
 
-  mainWindow.webContents.on('did-finish-load', () => {
-    mainWindow.webContents.executeJavaScript('toolbars_enable=1;dr.color=1;resize();');
+  mainWindow.webContents.on('did-finish-load', async () => {
+    await mainWindow.webContents.executeJavaScript('toolbars_enable=1;dr.color=1;resize();');
+    mainWindow.webContents.send('decker:endanger');
   });
 }
 
