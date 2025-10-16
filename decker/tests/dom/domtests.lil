@@ -261,6 +261,7 @@ dattr:()
 dattr.text:      ""
 dattr.scroll:    0
 dattr.border:    1
+dattr.pattern:   1
 dattr.scrollbar: 0
 dattr.style:     "rich"
 dattr.align:     "left"
@@ -269,6 +270,7 @@ on fieldattrs x do
 	r.text:      x.text
 	r.scroll:    x.scroll
 	r.border:    x.border
+	r.pattern:   x.pattern
 	r.scrollbar: x.scrollbar
 	r.style:     x.style
 	r.align:     x.align
@@ -276,27 +278,27 @@ end
 assert["field default attributes" dattr fieldattrs[f]]
 
 assert["field empty value"
-	insert text font arg with "" "" "" end
+	insert text font arg pat with "" "" "" 1 end
 	f.value
 ]
 
 f.text:v:"just some\nplain text?"
 assert["field write text, read text" v f.text]
 assert["field write text, read value"
-	insert text font arg with v "" "" end
+	insert text font arg pat with v "" "" 1 end
 	f.value
 ]
 
 f.value:v:insert text font with "information\n" "menu" "highly relevant stuff." "" end
 assert["field write table, read text" "information\nhighly relevant stuff." f.text]
-assert["field write table, read value" (update arg:"" from v) f.value]
+assert["field write table, read value" (update arg:"" pat:1 from v) f.value]
 
 cf:card.add["field"]
 cf.style:"code"
 assert["code fields default to a monospaced font" deck.fonts.mono cf.font]
 cf.value:f.value
 assert["non-rich text fields coalesce values into plain text"
-	insert text font arg with "information\nhighly relevant stuff." "" "" end
+	insert text font arg pat with "information\nhighly relevant stuff." "" "" 1 end
 	cf.value
 ]
 
@@ -304,7 +306,7 @@ cf:card.add["field"]
 cf.value:v
 cf.style:"plain"
 assert["non-rich text fields even coalesce existing values"
-	insert text font arg with "information\nhighly relevant stuff." "" "" end
+	insert text font arg pat with "information\nhighly relevant stuff." "" "" 1 end
 	cf.value
 ]
 
@@ -626,6 +628,17 @@ snd.map[(44,55) dict -37,-120]
 assert["sound map signed" (77,-37,-120,77,77) snd[0,5]]
 
 assert["sound histogram" ("%j" parse "{77:3,-120:1,-37:1}") snd.hist]
+
+s:sound[5]
+s[7,0]:()
+assert["sound delete OOB size" 5 s.size]
+assert["sound delete OOB data" (0,0,0,0,0) s[0,5]]
+s[5,0]:()
+assert["sound delete EOB size" 5 s.size]
+assert["sound delete EOB data" (0,0,0,0,0) s[0,5]]
+s[5,0]:11,22
+assert["sound insert EOB size" 7 s.size]
+assert["sound insert EOB data" (0,0,0,0,0,11,22) s[0,7]]
 
 #######################################
 #
@@ -1065,6 +1078,19 @@ assert_image["canvas rich text"
 	c.copy[]
 ]
 
+c.size:20,13
+c.clear[]
+rt:rtext.cat[
+	rtext.make["A" "menu" "" 13]
+	rtext.make["a" "menu" ""]
+	rtext.make["A" "body" "" 36]
+]
+c.text[rt 1,1]
+assert["canvas rich text color"
+	"%%IMG2ABQADQAqDQQADw0CAAINAgAKJAEAAw0CAAINAgACAQQABCQBAAMNAgACDQIAAQEBAAMBAgACJAEAASQBAAINBgACAQUAAiQBAAEkAQACDQIAAg0CAAEBAgACAQIAASQFAAENAgACDQIAAQECAAIBAgABJAEAAyQBAAENAgACDQIAAQECAAIBAgABJAEAAyQBAAENAgACDQIAAgEFAC4="
+	c.copy[].encoded
+]
+
 c.size:5,5
 c.clear[]
 c.pattern:13
@@ -1188,6 +1214,13 @@ c.size:8,8
 c.poly[8,0 8,4]
 assert["canvas edge clipping for polygons" (0 dict 64) c.copy[].hist]
 
+c:deck.card.add["canvas"]
+i:image["%%IMG0AAYABgBgUHgYAA=="]
+c.size:i.size
+c.paste[i]
+c.outline[37].outline[38]
+assert["canvas outline" "%%IMG1AAYABiYlJSYAACUBASUmACUBJQElJiUBAQEBJSYlJQEBJQAmJiUlJg==" c.copy[].encoded]
+
 #######################################
 #
 #  Deck
@@ -1286,6 +1319,7 @@ deck:newdeck[]
 deck.name:"everything but the sink"
 deck.author:"just some guy"
 deck.locked:1
+deck.corners:36
 o:deck.add["card" "other"]
 deck.script:"show[\"</script> is a perfectly valid string in Lil.\"]"
 deck.card.add["field" "output"].text:"A Sentence"
@@ -1358,6 +1392,13 @@ deck.name:"Test Deck"
 assert["deck string encoding" "{deck}\nversion:1\ncard:0\nsize:[512,342]\nname:\"Test Deck\"\n\n{card:home}\n\n" deck.encoded]
 deck:newdeck[deck.encoded]
 assert["deck string decoding" "Test Deck" deck.name]
+
+deck1:newdeck[]
+deck2:newdeck[]
+a:deck1.add["module" "local"]
+b:deck2.add["module" "local"]
+assert["removing modules from the wrong deck should fail"       0                       deck1.remove[b]]
+assert["removing modules from the wrong deck should be a no-op" ((list "local") dict a) deck1.modules  ]
 
 #######################################
 #

@@ -144,7 +144,7 @@ char* default_handlers=""
 "end\n"
 "on changecell x do "
 "	f:me.format[me.col] f:if count f f else \"s\" end "
-"	me.cellvalue:(\"%%%l\" format f) parse x "
+"	me.cellvalue:if \"t\"~f x else (\"%%%l\" format f) parse x end "
 "	me.event[\"change\" me.value] "
 "end\n"
 "on loop x do"
@@ -499,8 +499,8 @@ lv* n_image_scale(lv*self,lv*z){
 	pair r={MAX(0,n.x*(a?1:s.x)),MAX(0,n.y*(a?1:s.y))};
 	image_resize(self,r);buffer_paste_scaled(rect_pair((pair){0,0},r),rect_pair((pair){0,0},r),o->b,self->b,1);return self;
 }
-lv* n_image_outline(lv*self,lv*z){
-	int p=ln(l_first(z));if(p<1||p>47)return self;pair s=image_size(self);lv*target=self->b, *t=buffer_clone(target);
+void buffer_outline(lv*target,int p){
+	if(p<1||p>47)return;pair s=buff_size(target);lv*t=buffer_clone(target);
 	for(int a=0,i=0;a<s.y;a++)for(int b=0;b<s.x;b++,i++){
 		if(t->sv[i])continue;int n=0;
 		if(b>0    )n|=t->sv[(b-1)+(a  )*s.x];
@@ -508,8 +508,9 @@ lv* n_image_outline(lv*self,lv*z){
 		if(a>0    )n|=t->sv[(b  )+(a-1)*s.x];
 		if(a<s.y-1)n|=t->sv[(b  )+(a+1)*s.x];
 		if(n)target->sv[i]=p;
-	}return self;
+	}
 }
+lv* n_image_outline(lv*self,lv*z){buffer_outline(self->b,ln(l_first(z)));return self;}
 lv* image_write(lv*x){
 	x=image_is(x)?x:image_empty();pair s=image_size(x);str t=str_new();char f;int colors=0;for(int z=0;z<s.x*s.y;z++)if(x->b->sv[z]>1)colors=1;
 	str_addraw(&t,(s.x>>8)&0xFF),str_addraw(&t,s.x&0xFF);str_addraw(&t,(s.y>>8)&0xFF),str_addraw(&t,s.y&0xFF);
@@ -940,8 +941,9 @@ void draw_line_custom(rect r,lv*mask,int pattern){
 	}
 }
 void draw_line_function(rect r,lv*func,int pattern){
-	lv*a=lml2(lmpair((pair){r.w-r.x,r.h-r.y}),ONE),*p=lmblk(),*e=lmenv(NULL);blk_lit(p,func),blk_lit(p,a),blk_op(p,CALL),pushstate(e);
+	lv*a=lml3(lmpair((pair){r.w-r.x,r.h-r.y}),ONE,LNIL),*p=lmblk(),*e=lmenv(NULL);blk_lit(p,func),blk_lit(p,a),blk_op(p,CALL),pushstate(e);
 	int dx=abs(r.w-r.x), dy=-abs(r.h-r.y), err=dx+dy, sx=r.x<r.w ?1:-1, sy=r.y<r.h?1:-1;while(!do_panic){
+		if(func->c>2)a->lv[2]=lmpair((pair){r.x,r.y});
 		state.e->c=1,state.t->c=0,state.p->c=0,state.pcs.c=0;issue(e,p);int quota=BRUSH_QUOTA;while(quota&&running())runop(),quota--;lv*v=running()?ZERO:arg();
 		if(image_is(v)){
 			lv*mask=v->b;pair ms=buff_size(mask),mc={ms.x/2,ms.y/2};
@@ -1170,12 +1172,12 @@ rect draw_modalbox(pair s){
 }
 
 enum field_align{align_left,align_center,align_right};
-typedef struct {rect pos;int line;char c;lv*font,*arg;} glyph_box;
+typedef struct {rect pos;int line;char c;lv*font,*arg;int pat;} glyph_box;
 typedef struct {rect pos;pair range;} line_box;
 glyph_box*layout;int layout_count=0,layout_size=0;
 line_box*lines;int lines_count=0,lines_size=0;
-void layout_push(rect pos,int line,char c,lv*font,lv*arg){grower(layout,glyph_box);layout[layout_count++]=(glyph_box){pos,line,c,font,arg};}
-void lines_push (rect pos,pair range                    ){grower(lines ,line_box );lines [lines_count++]=(line_box){pos,range};}
+void layout_push(rect pos,int line,char c,lv*font,lv*arg,int pat){grower(layout,glyph_box);layout[layout_count++]=(glyph_box){pos,line,c,font,arg,pat};}
+void lines_push (rect pos,pair range                            ){grower(lines ,line_box );lines [lines_count++]=(line_box){pos,range};}
 pair layout_plaintext(char*text,lv*font,int align,pair max){
 	#define lnl() cursor=(pair){0,cursor.y+1}
 	layout_count=lines_count=0; pair cursor={0,0}; int fh=font_h(font),fs=font_sw(font);
@@ -1187,7 +1189,7 @@ pair layout_plaintext(char*text,lv*font,int align,pair max){
 			char c=text[i]; pair size={c=='\n'?0:font_gw(font,c)+fs,fh};
 			if(c==' '&&cursor.x==0&&layout_count>0&&!strchr("\n ",layout[layout_count-1].c))size.x=0; // squish lead space after a soft-wrap
 			if(cursor.x+size.x>=max.x)lnl(); // hard-break overlong words
-			layout_push((rect){cursor.x,cursor.y,size.x,size.y},cursor.y,c,font,LNIL);
+			layout_push((rect){cursor.x,cursor.y,size.x,size.y},cursor.y,c,font,LNIL,1);
 			if(c=='\n'){lnl();}else{cursor.x+=size.x;}
 			if(cursor.y>=(max.y/fh)){
 				layout_count=MAX(1,layout_count-3);
@@ -1207,12 +1209,12 @@ pair layout_plaintext(char*text,lv*font,int align,pair max){
 }
 pair layout_richtext(lv*deck,lv*table,lv*font,int align,int width){
 	layout_count=lines_count=0; pair cursor={0,0};
-	lv*texts=dget(table,lmistr("text")),*fonts=dget(table,lmistr("font")),*args=dget(table,lmistr("arg")),*dfonts=ifield(deck,"fonts");
+	lv*texts=dget(table,lmistr("text")),*fonts=dget(table,lmistr("font")),*args=dget(table,lmistr("arg")),*pats=dget(table,lmistr("pat")),*dfonts=ifield(deck,"fonts");
 	int fh=0;for(int chunk=0;chunk<table->n;chunk++){
 		lv*f=dget(dfonts,fonts->lv[chunk]);if(!f)f=font; fh=font_h(f); int fs=font_sw(f);
 		if(image_is(args->lv[chunk])){
 			pair size=image_size(args->lv[chunk]);if(cursor.x+size.x>=width&&cursor.x>0)lnl(); // image won't fit this line
-			layout_push((rect){cursor.x,cursor.y,size.x,size.y},cursor.y,'i',f,args->lv[chunk]);cursor.x+=size.x;continue;
+			layout_push((rect){cursor.x,cursor.y,size.x,size.y},cursor.y,'i',f,args->lv[chunk],ln(pats->lv[chunk]));cursor.x+=size.x;continue;
 		}
 		lv*t=texts->lv[chunk];for(int z=0;z<t->c;z++){
 			int a=z,w=t->sv[z]=='\n'?0:(font_gw(f,t->sv[z])+fs);
@@ -1222,7 +1224,7 @@ pair layout_richtext(lv*deck,lv*table,lv*font,int align,int width){
 				char c=t->sv[i]; pair size={c=='\n'?0:font_gw(f,c)+fs,fh};
 				if(c==' '&&cursor.x==0&&layout_count>0&&!strchr("\n ",layout[layout_count-1].c))size.x=0; // squish lead space after a soft-wrap
 				if(cursor.x+size.x>=width)lnl(); // hard-break overlong words
-				layout_push((rect){cursor.x,cursor.y,size.x,size.y},cursor.y,c,f,args->lv[chunk]);
+				layout_push((rect){cursor.x,cursor.y,size.x,size.y},cursor.y,c,f,args->lv[chunk],ln(pats->lv[chunk]));
 				if(c=='\n'){lnl();}else{cursor.x+=size.x;}
 			}
 		}
@@ -1240,16 +1242,18 @@ void draw_text_wrap(rect r,int pattern){
 	rect oc=frame.clip;frame.clip=r;for(int z=0;z<layout_count;z++){
 		glyph_box g=layout[z];if(g.pos.w<1)continue; // skip squashed spaces/newlines
 		g.pos.x+=r.x, g.pos.y+=r.y;
-		font_each(g.font,g.c)if(font_gpix(g.font,g.c,b,a)&&inclip(g.pos.x+b,g.pos.y+a))PIX(g.pos.x+b,g.pos.y+a)=pattern;
+		int gc=g.pat==1?pattern:g.pat;
+		font_each(g.font,g.c)if(font_gpix(g.font,g.c,b,a)&&inclip(g.pos.x+b,g.pos.y+a))PIX(g.pos.x+b,g.pos.y+a)=gc;
 	}frame.clip=oc;
 }
 void draw_text_rich(rect r,int pattern,int opaque){
 	rect oc=frame.clip;frame.clip=r;for(int z=0;z<layout_count;z++){
 		glyph_box g=layout[z];if(g.pos.w<1)continue; // skip squashed spaces/newlines
 		if(g.pos.y+g.pos.h<0||g.pos.y>r.h)continue; g.pos.x+=r.x, g.pos.y+=r.y; // coarse clip
+		int gc=g.pat==1?pattern:g.pat;
 		if(lis(g.arg)&&g.arg->c){draw_hline(g.pos.x,g.pos.x+g.pos.w,g.pos.y+g.pos.h-1,19);}
 		if(image_is(g.arg)){buffer_paste(g.pos,frame.clip,g.arg->b,frame.buffer,opaque);}
-		else{font_each(g.font,g.c)if(font_gpix(g.font,g.c,b,a)&&inclip(g.pos.x+b,g.pos.y+a))PIX(g.pos.x+b,g.pos.y+a)=pattern;}
+		else{font_each(g.font,g.c)if(font_gpix(g.font,g.c,b,a)&&inclip(g.pos.x+b,g.pos.y+a))PIX(g.pos.x+b,g.pos.y+a)=gc;}
 	}frame.clip=oc;
 }
 
@@ -1269,7 +1273,7 @@ lv* interface_sound(lv*self,lv*i,lv*x){
 		else{return ib?lmn((signed char)data->sv[n]):LNIL;}
 	}
 	if(i&&lil(i)){ // read/write ranges
-		pair n=getpair(i);n.y=MAX(0,n.y);if(x){
+		pair n=getpair(i);n.x=MIN(n.x,data->c),n.y=MAX(0,n.y);if(x){
 			lv*s=ll(x),*r=lms(CLAMP(0,(data->c-n.y)+s->c,10*SFX_RATE));
 			for(int z=0;z<n.x;z++)r->sv[z]=z>=data->c?0:data->sv[z]; // before splice
 			EACH(z,s)if(n.x+z>=0&&n.x+z<r->c)r->sv[n.x+z]=0xFF&(int)ln(s->lv[z]); // splice
@@ -1599,6 +1603,7 @@ lv* n_canvas_segment(lv*self,lv*z){
 	rect r=getrect(z->c>1?z->lv[1]:NULL),m=getrect(normalize_margin(z->c>2?z->lv[2]:NULL,buff_size(i)));
 	r.w=MAX(r.w,m.x+m.w),r.h=MAX(r.h,m.y+m.h);draw_9seg(r,frame.buffer,i,m,frame.clip,0,NULL);return self;
 }
+lv* n_canvas_outline(lv*self,lv*z){pick_canvas(self);buffer_outline(frame.buffer,ln(l_first(z)));return self;}
 lv* interface_canvas(lv*self,lv*i,lv*x){
 	if(!is_rooted(self))return LNIL;
 	lv*data=self->b;lv*card=dget(data,lmistr("card")),*deck=dget(card->b,lmistr("deck")),*fonts=dget(deck->b,lmistr("fonts"));
@@ -1635,6 +1640,7 @@ lv* interface_canvas(lv*self,lv*i,lv*x){
 		ikey("copy"     )return lmnat(n_canvas_copy,  self);
 		ikey("paste"    )return lmnat(n_canvas_paste, self);
 		ikey("segment"  )return lmnat(n_canvas_segment,self);
+		ikey("outline"  )return lmnat(n_canvas_outline,self);
 		ikey("textsize" )return lmnat(n_canvas_textsize,self);
 	}return interface_widget(self,i,x);
 }
@@ -1717,24 +1723,23 @@ lv* button_write(lv*x){
 int rtext_len(lv*table){lv*t=dget(table,lmistr("text"));int r=0;EACH(z,t)r+=t->lv[z]->c;return r;}
 int rtext_get(lv*table,int x){lv*t=dget(table,lmistr("text"));int i=0;EACH(z,t){i+=t->lv[z]->c;if(i>=x)return z;}return -1;}
 pair rtext_getr(lv*table,int x){lv*t=dget(table,lmistr("text"));int i=0;EACH(z,t){int c=t->lv[z]->c;if(i+c>=x)return (pair){i,i+c};i+=c;}return(pair){x,x};}
-lv* rtext_font(lv*table,int x){int i=rtext_get(table,x);return i<0?lmistr(""):dget(table,lmistr("font"))->lv[i];}
 int rtext_is_plain(lv*x){
-	if(!lit(x)||!dget(x,lmistr("text"))||!dget(x,lmistr("font"))||!dget(x,lmistr("arg"))||x->n>1)return 0;if(x->n==0)return 1;
-	lv*f=dget(x,lmistr("font"))->lv[0],*a=dget(x,lmistr("arg"))->lv[0];return !strcmp(f->sv,"")&&!image_is(a)&&!strcmp(ls(a)->sv,"");
+	if(!lit(x)||!dget(x,lmistr("text"))||!dget(x,lmistr("font"))||!dget(x,lmistr("arg"))||!dget(x,lmistr("pat"))||x->n>1)return 0;if(x->n==0)return 1;
+	lv*f=dget(x,lmistr("font"))->lv[0],*a=dget(x,lmistr("arg"))->lv[0],*p=dget(x,lmistr("pat"))->lv[0];return !strcmp(f->sv,"")&&!image_is(a)&&!strcmp(ls(a)->sv,"")&&ln(p)==1;
 }
 lv* rtext_is_image(lv*x){
 	lv*r=NULL,*t=dget(x,lmistr("text")),*a=dget(x,lmistr("arg")); // look for at least one image, and other spans must be only whitespace.
 	for(int z=0;z<x->n;z++){if(image_is(a->lv[z])){if(!r)r=a->lv[z];}else if((int)strspn(t->lv[z]->sv," \n")!=t->lv[z]->c){return NULL;}}return r;
 }
-int rtext_append(lv*table,lv*text,lv*font,lv*arg){
+int rtext_append(lv*table,lv*text,lv*font,lv*arg,lv*pat){
 	if(image_is(arg)){if(text->c>1)text=lmistr("i");if(text->c<1)return 0;}if(!text->c)return 0; // NOTE: this routine modifies <table> in place!
-	lv*t=dget(table,lmistr("text")),*f=dget(table,lmistr("font")),*a=dget(table,lmistr("arg"));
-	if(t->c&&matchr(font,l_last(f))&&!image_is(arg)&&matchr(arg,l_last(a))){str u=str_new();str_addl(&u,t->lv[t->c-1]),str_addl(&u,text),t->lv[t->c-1]=lmstr(u);}
-	else{ll_add(t,text),ll_add(f,font),ll_add(a,arg);}torect(table);return text->c;
+	lv*t=dget(table,lmistr("text")),*f=dget(table,lmistr("font")),*a=dget(table,lmistr("arg")),*p=dget(table,lmistr("pat"));
+	if(t->c&&matchr(font,l_last(f))&&!image_is(arg)&&matchr(arg,l_last(a))&&matchr(pat,l_last(p))){str u=str_new();str_addl(&u,t->lv[t->c-1]),str_addl(&u,text),t->lv[t->c-1]=lmstr(u);}
+	else{ll_add(t,text),ll_add(f,font),ll_add(a,arg),ll_add(p,pat);}torect(table);return text->c;
 }
 void rtext_appendr(lv*table,lv*suffix){
-	lv*t=dget(suffix,lmistr("text")),*f=dget(suffix,lmistr("font")),*a=dget(suffix,lmistr("arg"));
-	EACH(z,t)rtext_append(table,t->lv[z],f->lv[z],a->lv[z]);
+	lv*t=dget(suffix,lmistr("text")),*f=dget(suffix,lmistr("font")),*a=dget(suffix,lmistr("arg")),*p=dget(suffix,lmistr("pat"));
+	EACH(z,t)rtext_append(table,t->lv[z],f->lv[z],a->lv[z],p->lv[z]);
 }
 lv* rtext_string(lv*table,pair cursor){
 	str r=str_new(); int i=0,a=MIN(cursor.x,cursor.y),b=MAX(cursor.x,cursor.y); lv*t=dget(table,lmistr("text"));
@@ -1744,46 +1749,49 @@ lv* rtext_string(lv*table,pair cursor){
 lv* rtext_all(lv*table){return rtext_string(table,(pair){0,RTEXT_END});}
 lv* rtext_span(lv*table,pair cursor){
 	lv*r=l_take(ZERO,table); int i=0,c=0, a=MIN(cursor.x,cursor.y),b=MAX(cursor.x,cursor.y);
-	lv*t=dget(table,lmistr("text")),*f=dget(table,lmistr("font")),*g=dget(table,lmistr("arg"));
+	lv*t=dget(table,lmistr("text")),*f=dget(table,lmistr("font")),*g=dget(table,lmistr("arg")),*p=dget(table,lmistr("pat"));
 	while(c<t->c&&(i+t->lv[c]->c)<a)i+=t->lv[c++]->c; // skip whole preceding chunks
 	if(c<t->c&&i<=a){ // copy lead-in
 		str rr=str_new();for(int z=0;z<t->lv[c]->c;z++,i++)if(i>=a&&i<b)str_addc(&rr,t->lv[c]->sv[z]);
-		rtext_append(r,lmstr(rr),f->lv[c],g->lv[c]);c++;
+		rtext_append(r,lmstr(rr),f->lv[c],g->lv[c],p->lv[c]);c++;
 	}
-	while(c<t->c&&(i+t->lv[c]->c)<b)i+=rtext_append(r,t->lv[c],f->lv[c],g->lv[c]),c++; // copy whole chunks
+	while(c<t->c&&(i+t->lv[c]->c)<b)i+=rtext_append(r,t->lv[c],f->lv[c],g->lv[c],p->lv[c]),c++; // copy whole chunks
 	if(c<t->c&&i<b){ // copy lead-out
 		str rr=str_new();for(int z=0;z<t->lv[c]->c;z++,i++)if(i>=a&&i<b)str_addc(&rr,t->lv[c]->sv[z]);
-		rtext_append(r,lmstr(rr),f->lv[c],g->lv[c]);
+		rtext_append(r,lmstr(rr),f->lv[c],g->lv[c],p->lv[c]);
 	}return r;
 }
 lv* n_rtext_make(lv*self,lv*z){
 	(void)self;lv*r=lmt();
+	lv*p=z->c<4?ONE: lmn(CLAMP(0,ln(z->lv[3]),255));
 	lv*a=z->c<3?lmistr(""): image_is(z->lv[2])?z->lv[2]: ls(z->lv[2]);
 	lv*f=z->c<2?lmistr(""): ls(z->lv[1]);
 	lv*t=image_is(a)?lmistr("i"): z->c<1?lmistr(""): ls(z->lv[0]);
-	dset(r,lmistr("text"),l_list(t)),dset(r,lmistr("font"),l_list(f)),dset(r,lmistr("arg"),l_list(a));
+	dset(r,lmistr("text"),l_list(t)),dset(r,lmistr("font"),l_list(f)),dset(r,lmistr("arg"),l_list(a)),dset(r,lmistr("pat"),p);
 	return torect(r);
 }
 lv* rtext_cast(lv*x){
 	if(!x)x=lmistr("");
 	if(image_is(x))return n_rtext_make(NULL,lml3(lmistr(""),lmistr(""),x));
 	if(lid(x))x=l_table(x);if(!lit(x))return n_rtext_make(NULL,l_list(ls(x)));
-	lv*t=lmistr("text"),*f=lmistr("font"),*a=lmistr("arg"),*tv=dget(x,t),*fv=dget(x,f),*av=dget(x,a);
-	if(x->c==3&&tv&&fv&&av){int v=1;EACH(z,tv){if(!lis(tv->lv[z])||!lis(fv->lv[z])||(!lis(av->lv[z])&&!image_is(av->lv[z])))v=0;break;}if(v)return x;}lv*r=lmt();
+	lv*t=lmistr("text"),*f=lmistr("font"),*a=lmistr("arg"),*p=lmistr("pat"),*tv=dget(x,t),*fv=dget(x,f),*av=dget(x,a),*pv=dget(x,p);
+	if(x->c==4&&tv&&fv&&av&&pv){int v=1;EACH(z,tv){if(!lis(tv->lv[z])||!lis(fv->lv[z])||(!lis(av->lv[z])&&!image_is(av->lv[z]))||!lin(pv->lv[z])||ln(pv->lv[z])<0||ln(pv->lv[z])>255)v=0;break;}if(v)return x;}lv*r=lmt();
 	{lv*v=dget(x,t);dset(r,t,v?v:l_list(lmistr("")));}
 	{lv*v=dget(x,f);dset(r,f,v?v:l_list(lmistr("")));}
 	{lv*v=dget(x,a);dset(r,a,v?v:l_list(lmistr("")));}
+	{lv*v=dget(x,p);dset(r,p,v?v:l_list(ONE));}
 	torect(r);for(int z=0;z<r->n;z++){
 		int i=image_is(r->lv[2]->lv[z]);
 		r->lv[0]->lv[z]=i?lmistr("i"):ls(r->lv[0]->lv[z]);
 		r->lv[1]->lv[z]=ls(r->lv[1]->lv[z]);
 		r->lv[2]->lv[z]=i?r->lv[2]->lv[z]:ls(r->lv[2]->lv[z]);
+		r->lv[3]->lv[z]=lin(r->lv[3]->lv[z])?lmn(CLAMP(0,ln(r->lv[3]->lv[z]),255)):ONE;
 	}return torect(r);
 }
-lv* rtext_splice(lv*table,lv*font,lv*arg,char*text,pair cursor,pair*endcursor){
+lv* rtext_splice(lv*table,lv*font,lv*arg,int pat,char*text,pair cursor,pair*endcursor){
 	int a=MIN(cursor.x,cursor.y),b=MAX(cursor.x,cursor.y); lv*r=rtext_cast(NULL),*t=lmcstr(text);
 	rtext_appendr(r,rtext_span(table,(pair){0,a}));
-	rtext_append (r,t,font,arg);
+	rtext_append (r,t,font,arg,lmn(pat));
 	rtext_appendr(r,rtext_span(table,(pair){b,RTEXT_END}));
 	endcursor->x=endcursor->y=a+t->c; return r;
 }
@@ -1802,6 +1810,7 @@ lv* rtext_read(lv*x){
 lv* rtext_write(lv*x){
 	x=l_cols(x);
 	lv*a=dget(x,lmistr("arg"));if(a){MAP(n,a)image_is(a->lv[z])?image_write(a->lv[z]):a->lv[z];dset(x,lmistr("arg"),n);}
+	lv*p=dget(x,lmistr("pat"));int mp=1;EACH(z,p)if(ln(p->lv[z])!=1){mp=0;break;}if(mp)x=l_drop(lmistr("pat"),x);
 	return x;
 }
 lv* rtext_encode(lv*x){str r=str_new();str_addz(&r,"%%RTX0");fjson(&r,rtext_write(x));return lmstr(r);}
@@ -1870,7 +1879,7 @@ lv* interface_rtext(lv*self,lv*i,lv*x){
 
 enum field_types{text_body,text_heading,text_fixed,text_link};
 enum field_style{field_rich,field_plain,field_code};
-typedef struct {rect size;lv*font;int show,scrollbar,border,style,align,locked;} field;
+typedef struct {rect size;lv*font;int show,scrollbar,border,style,align,locked,pattern;} field;
 typedef struct {lv*table;int scroll;} field_val;
 char*field_styles[]={"rich","plain","code",NULL};
 char*field_aligns[]={"left","center","right",NULL};
@@ -1885,6 +1894,7 @@ field unpack_field(lv*x,field_val*value){
 		ordinal_enum(ifield(x,"style"),field_styles),
 		ordinal_enum(ifield(x,"align"),field_aligns),
 		lb(ifield(x,"locked")),
+		(int)(ln(ifield(x,"pattern"))),
 	};
 }
 lv* n_field_scrollto(lv*self,lv*x){
@@ -1908,6 +1918,7 @@ lv* interface_field(lv*self,lv*i,lv*x){
 			dset(data,i,rtext_cast(x));field_notify(self);return x;
 		}
 		ikey("border"   ){dset(data,i,lmn(lb(x)));return x;}
+		ikey("pattern"  ){int n=CLAMP(0,ln(x),255);dset(data,i,lmn(n));return x;}
 		ikey("scrollbar"){dset(data,i,lmn(lb(x)));return x;}
 		ikey("style"    ){dset(data,i,normalize_enum(x,field_styles));iwrite(self,lmistr("value"),dget(data,lmistr("value")));return x;}
 		ikey("align"    ){dset(data,i,normalize_enum(x,field_aligns));return x;}
@@ -1919,6 +1930,7 @@ lv* interface_field(lv*self,lv*i,lv*x){
 		ikey("scroll"   ){lv*r=value_inherit(self,i);return r?r:ZERO;}
 		ikey("scrollbar"){lv*r=dget(data,i);return r?r:ZERO;}
 		ikey("border"   ){lv*r=dget(data,i);return r?r:ONE;}
+		ikey("pattern"  ){lv*r=dget(data,i);return r?r:ONE;}
 		ikey("style"    ){lv*r=dget(data,i);return r?r:lmistr(field_styles[0]);}
 		ikey("align"    ){lv*r=dget(data,i);return r?r:lmistr(field_aligns[0]);}
 		ikey("size"     ){lv*r=dget(data,i);return r?r:lmpair((pair){100,20});}
@@ -1934,6 +1946,7 @@ lv* field_read(lv*x,lv*r){
 	x=ld(x),r=lmi(interface_field,lmistr("field"),r);
 	{lv*k=lmistr("value"),*v=dget(x,k);if(v)iwrite(r,k,rtext_read(v));}
 	init_field(r,"border"   ,x);
+	init_field(r,"pattern"  ,x);
 	init_field(r,"scrollbar",x);
 	init_field(r,"style"    ,x);
 	init_field(r,"align"    ,x);
@@ -1943,6 +1956,7 @@ lv* field_read(lv*x,lv*r){
 lv* field_write(lv*x){
 	lv*data=x->b,*r=lmd();dset(r,lmistr("type"),lmistr("field"));int vol=lb(ifield(x,"volatile"));
 	{lv*k=lmistr("border"   ),*v=dget(data,k);if(v)dset(r,k,v);}
+	{lv*k=lmistr("pattern"  ),*v=dget(data,k);if(v&&ln(v)!=1)dset(r,k,v);}
 	{lv*k=lmistr("scrollbar"),*v=dget(data,k);if(v)dset(r,k,v);}
 	{lv*k=lmistr("style"    ),*v=dget(data,k);if(v&&strcmp(field_styles[0],v->sv))dset(r,k,v);}
 	{lv*k=lmistr("align"    ),*v=dget(data,k);if(v&&strcmp(field_aligns[0],v->sv))dset(r,k,v);}
@@ -2033,15 +2047,35 @@ grid unpack_grid(lv*x,grid_val*value){
 	lv*w=ifield(x,"widths");r.widths[0]=w->c;EACH(z,w)r.widths[1+z]=ln(w->lv[z]);
 	return r;
 }
-int grid_scrollto(lv*t,grid g,int s,int r){
+void grid_pv(lv*self,lv**pv,lv**vp){
+	if(!self)return;
+	lv*pk=lmistr("pv"),*vk=lmistr("vp"),*p=dget(self->b,pk),*v=dget(self->b,vk);
+	if((!p)||p==LNIL){
+		lv*t=ifield(self,"value"),*c=dget(t,lmistr("_hideby"));
+		if(!c){p=lml(t->n);EACH(z,p)p->lv[z]=lmn(z);v=p;}
+		else{p=lml(0),v=lml(c->c);EACH(z,c){int n=lb(c->lv[z]);v->lv[z]=lmn(!n?p->c:-1);if(!n)ll_add(p,lmn(z));}}
+		dset(self->b,pk,p),dset(self->b,vk,v);
+	}*pv=p,*vp=v;
+}
+int grid_nrd(int rowcount,grid g){
 	int head=g.headers?10+5:0;         // default to body font height
 	int row=g.font?font_h(g.font):11;  // default to mono font height
-	int n=MIN(t->n,0|((g.size.h-head+1)/(row+5)));
-	return (r-s<0)?r: (r-s>=n)?r-(n-1): s;
+	return MIN(rowcount,0|((g.size.h-head+1)/(row+5)));
+}
+int grid_scrollto_simple(int rowcount,grid g,int s,int r){
+	int nrd=grid_nrd(rowcount,g);
+	return (r-s<0)?r: (r-s>=nrd)?r-(nrd-1): s;
+}
+int grid_scrollto(lv*self,grid g,int s,int r){
+	lv*pv=NULL,*vp=NULL;if(self!=NULL)grid_pv(self,&pv,&vp);r=CLAMP(0,r,vp->c-1);
+	#define permuted_row(disp_row) (((disp_row)==-1)?-1:pv?((int)ln(pv->lv[(disp_row)])):(disp_row))
+	#define display_row(perm_row)  (((perm_row)==-1)?-1:vp?((int)ln(vp->lv[(perm_row)])):(perm_row))
+	int nrd=grid_nrd(pv->c,g), rs=0;while(r<vp->c){rs=ln(vp->lv[r]);if(rs!=-1)break;r++;}
+	return (rs-s<0)?rs: (rs-s>=nrd)?rs-(nrd-1): s;
 }
 lv* n_grid_scrollto(lv*self,lv*x){
 	grid_val v;grid g=unpack_grid(self,&v);
-	int t=grid_scrollto(v.table,g,v.scroll,ln(l_first(x)));
+	int t=grid_scrollto(self,g,v.scroll,ln(l_first(x)));
 	if(t!=v.scroll)iwrite(self,lmistr("scroll"),lmn(t));
 	return self;
 }
@@ -2049,7 +2083,7 @@ lv* interface_grid(lv*self,lv*i,lv*x){
 	if(!is_rooted(self))return LNIL;
 	lv*data=self->b;
 	if(x){
-		ikey("value"    ){dset(data,i,lt(x));return x;}
+		ikey("value"    ){dset(data,i,lt(x)),dset(data,lmistr("pv"),LNIL);return x;}
 		ikey("scroll"   ){int n=MAX(0,ln(x));dset(data,i,lmn(n));return x;}
 		ikey("row"      ){int n=MAX(-1,ln(x));dset(data,i,lmn(n));return x;}
 		ikey("col"      ){if(!lin(x))return iwrite(self,lmistr("colname"),x);int n=MAX(-1,ln(x));dset(data,i,lmn(n));return x;}
@@ -2345,7 +2379,7 @@ lv* n_card_add(lv*self,lv*z){
 lv* n_card_remove(lv*self,lv*z){
 	z=l_first(z);
 	if(lil(z)||lid(z)){int r=1;EACH(i,z)r&=lb(n_card_remove(self,z->lv[i]));return lmbool(r);}
-	if(!widget_is(z)||lin(dkey(ivalue(self,"widgets"),z)))return ZERO;
+	if(!widget_is(z)||linil(dkey(ivalue(self,"widgets"),z)))return ZERO;
 	lv*name=ifield(z,"name"),*widgets=ivalue(self,"widgets"),*target=dget(widgets,name);
 	dset(self->b,lmistr("widgets"),l_drop(name,widgets));
 	dset(target->b,lmistr("dead"),ONE);return ONE;
@@ -2381,7 +2415,7 @@ lv* n_con_copy(lv*card,lv*z){
 	lv*deck=ivalue(card,"deck"),*condefs=ifield(deck,"contraptions");find_fonts(deck,v,z);EACH(w,wids){
 		lv*wid=wids->lv[w],*type=dget(wid,lmistr("type")),*def=dget(wid,lmistr("def"));
 		if(!strcmp(type->sv,"contraption")&&dget(defs,def)==NULL)dset(defs,def,prototype_write(dget(condefs,def)));
-	}str r=str_new();str_addz(&r,"%%WGT0");fjson(&r,v);return lmstr(r);
+	}str r=str_new();str_addz(&r,"%%WGT0");flove(&r,v);return lmstr(r);
 }
 lv* n_deck_add(lv*self,lv*z);lv* deck_read(lv*x); // forward refs
 void merge_prototypes(lv*deck,lv*defs,lv*uses){
@@ -2404,7 +2438,7 @@ void merge_prototypes(lv*deck,lv*defs,lv*uses){
 }
 lv* n_con_paste(lv*card,lv*z){
 	z=l_first(z);if(!lis(z)||!has_prefix(z->sv,"%%wgt0"))return LNIL;
-	int f=1,i=6,n=z->c-i;lv*v=ld(pjson(z->sv,&i,&f,&n)),*defs=dget(v,lmistr("d")),*wids=dget(v,lmistr("w"));wids=wids?ll(wids):lml(0);
+	int f=1,i=6,n=z->c-i;lv*v=ld(plove(z->sv,&i,&f,&n)),*defs=dget(v,lmistr("d")),*wids=dget(v,lmistr("w"));wids=wids?ll(wids):lml(0);
 	lv*deck=ivalue(card,"deck");merge_fonts(deck,dget(v,lmistr("f"))),merge_prototypes(deck,defs?ld(defs):lmd(),wids);
 	return con_paste_raw(card,wids);
 }
@@ -2582,11 +2616,11 @@ lv* n_deck_copy(lv*deck,lv*z){
 	lv*wids=ifield(z,"widgets");find_fonts(deck,v,wids);EACH(w,wids){
 		lv*wid=wids->lv[w];if(!contraption_is(wid))continue;
 		lv*d=ifield(wid,"def"),*n=ifield(d,"name");if(dget(defs,n)==NULL)dset(defs,n,prototype_write(d));
-	}str r=str_new();str_addz(&r,"%%CRD0");fjson(&r,v);return lmstr(r);
+	}str r=str_new();str_addz(&r,"%%CRD0");flove(&r,v);return lmstr(r);
 }
 lv* deck_paste_named(lv*deck,lv*z,lv*name){
 	z=l_first(z);if(!lis(z)||!has_prefix(z->sv,"%%crd0"))return LNIL;
-	int f=1,i=6,n=z->c-i;lv*v=ld(pjson(z->sv,&i,&f,&n)),*payload=dget(v,lmistr("c")),*defs=dget(v,lmistr("d"));payload=payload?ld(payload):lmd();
+	int f=1,i=6,n=z->c-i;lv*v=ld(plove(z->sv,&i,&f,&n)),*payload=dget(v,lmistr("c")),*defs=dget(v,lmistr("d"));payload=payload?ld(payload):lmd();
 	merge_fonts(deck,dget(v,lmistr("f")));
 	lv*wids=dget(payload,lmistr("widgets"));if(wids&&lid(wids)){EACH(z,wids)dset(wids->lv[z],lmistr("name"),wids->kv[z]);}
 	merge_prototypes(deck,defs?ld(defs):lmd(),wids?ll(wids):lml(0));
@@ -2647,17 +2681,17 @@ lv* n_deck_remove(lv*self,lv*z){
 	if(widget_is(t)&&is_rooted(t))return n_card_remove(ivalue(t,"card"),t);
 	if(module_is(t)){
 		lv*k=lmistr("modules"),*m=dget(data,k);
-		lv*n=dkey(m,t);if(lin(n))return ZERO; // this module isn't part of this deck
+		lv*n=dkey(m,t);if(linil(n))return ZERO; // this module isn't part of this deck
 		dset(data,k,l_drop(n,m));return ONE;
 	}
 	if(sound_is(t)){
 		lv*k=lmistr("sounds"),*s=dget(data,k);
-		lv*n=dkey(s,t);if(lin(n))return ZERO; // this sound isn't part of this deck
+		lv*n=dkey(s,t);if(linil(n))return ZERO; // this sound isn't part of this deck
 		dset(data,k,l_drop(n,s));return ONE;
 	}
 	if(font_is(t)){
 		lv*k=lmistr("fonts"),*fonts=dget(data,k);
-		lv*n=dkey(fonts,t);if(lin(n))return ZERO; // this font isn't part of this deck
+		lv*n=dkey(fonts,t);if(linil(n))return ZERO; // this font isn't part of this deck
 		if(!strcmp("body",n->sv)||!strcmp("menu",n->sv)||!strcmp("mono",n->sv))return ZERO; // cannot delete builtin fonts
 		EACH(c,cards)remove_font(ifield(cards->lv[c],"widgets"),t);
 		EACH(c,defs )remove_font(ifield(defs ->lv[c],"widgets"),t);
@@ -2665,7 +2699,7 @@ lv* n_deck_remove(lv*self,lv*z){
 	}
 	if(prototype_is(t)){
 		lv*k=lmistr("contraptions");
-		lv*n=dkey(defs,t);if(lin(n))return ZERO; // this contraption isn't part of the deck
+		lv*n=dkey(defs,t);if(linil(n))return ZERO; // this contraption isn't part of the deck
 		lv*cards=ifield(self,"cards");EACH(c,cards){ // scrub instances from every card:
 			lv*card=cards->lv[c],*widgets=ifield(card,"widgets");EACH(w,widgets){
 				lv*widget=widgets->lv[w];if(contraption_is(widget)&&ifield(widget,"def")==t)n_card_remove(card,widget);
@@ -2698,16 +2732,18 @@ lv* deck_write(lv*x,int html); // forward ref
 lv* interface_deck(lv*self,lv*i,lv*x){
 	lv*data=self->b,*cards=ivalue(self,"cards");
 	if(x){
-		ikey("locked"){dset(data,i,lmn(lb(x)));return x;}
-		ikey("name"  ){dset(data,i,ls(x));return x;}
-		ikey("author"){dset(data,i,ls(x));return x;}
-		ikey("script"){dset(data,i,ls(x));return x;}
-		ikey("card"  ){n_go(self,l_list(x));return x;}
+		ikey("locked" ){dset(data,i,lmn(lb(x)));return x;}
+		ikey("name"   ){dset(data,i,ls(x));return x;}
+		ikey("author" ){dset(data,i,ls(x));return x;}
+		ikey("corners"){dset(data,i,lmn(CLAMP(0,ln(x),47)));return x;}
+		ikey("script" ){dset(data,i,ls(x));return x;}
+		ikey("card"   ){n_go(self,l_list(x));return x;}
 	}else{
 		ikey("version" )return dget(data,i);
 		ikey("locked"  )return dget(data,i);
 		ikey("name"    )return dget(data,i);
 		ikey("author"  )return dget(data,i);
+		ikey("corners" ){lv*r=dget(data,i);return r?r:ONE;}
 		ikey("script"  )return dget(data,i);
 		ikey("patterns")return dget(data,i);
 		ikey("sounds"  )return l_drop(ZERO,dget(data,i)); // expose a shallow copy
@@ -2780,6 +2816,7 @@ lv* deck_read(lv*x){
 	{lv*k=lmistr("name"    ),*f=dget(deck,k);dset(r,k,str_read(f,""));}
 	{lv*k=lmistr("author"  ),*f=dget(deck,k);dset(r,k,str_read(f,""));}
 	{lv*k=lmistr("script"  ),*f=dget(deck,k);dset(r,k,str_read(f,""));}
+	{lv*k=lmistr("corners" ),*f=dget(deck,k);dset(r,k,f?lmn(CLAMP(0,ln(f),47)):ONE);}
 	{lv*k=lmistr("card"    ),*f=dget(deck,k);int n=f?ln(f):0;dset(r,k,lmn(CLAMP(0,n,cards->c-1)));}
 	dset(r,lmistr("brushes"),lmd()),dset(r,lmistr("brusht"),lmd());
 	lv*trans=lmd();dset(r,lmistr("transit"),trans);lv*root=lmenv(NULL);constants(root);dset(root,lmistr("transition"),lmnat(n_transition,ri));
@@ -2835,6 +2872,7 @@ lv* deck_write(lv*x,int html){
 	write_line("script"    ,v->c                                          ,script_ref(scripts,NULL,&sci,v,0))
 	write_line("name"      ,v->c                                          ,v                                )
 	write_line("author"    ,v->c                                          ,v                                )
+	write_line("corners"   ,ln(v)!=1                                      ,v                                )
 	write_line("patterns"  ,strcmp(patterns_write(v)->sv,DEFAULT_PATTERNS),patterns_write(v)                )
 	write_line("animations",!matchr(pa,da)                                ,pa                               )
 	scripts_write(scripts,&r,&si);
@@ -2978,27 +3016,41 @@ lv* readgif(char*data,int size,int gray,int frames){
 #define add_byte_framed(b) {if(bo==r.c)add_byte(0);r.sv[bo]++;add_byte(b);if((0xFF&r.sv[bo])==0xFF)bo=r.c;}
 #define add_bits(c) {b|=(c)<<nb;nb+=w;while(nb>=8){add_byte_framed(b&0xff);b>>=8,nb-=8;}}
 #define inc_hi() {hi++;if(hi==ov){w++;ov<<=1;}if(hi==0xfff){unsigned int c=1<<lw;add_bits(c);w=lw+1;hi=c+1;ov=c<<1;memset(t, 0, sizeof(t));tc=1;}}
-char* writegif(lv*frames,lv*delays,int*len){
+char* writegif(lv*frames,lv*delays,int*len,int*pal,int pal_size){
+	int paltrans=-1;for(int z=0;z<pal_size;z++)if(pal[z]==-1)paltrans=z;
+	if(pal_size)pal_size=pal_size?MAX(2,pow(2,ceil(log2(pal_size)))):0; // next-closest power of 2
 	lv*patterns=patterns_read(lmd());str r=str_new();pair size={1,1};
 	EACH(z,frames)size=pair_max(size,image_size(frames->lv[z]));
 	str_addz(&r,"GIF89a");add_short(size.x),add_short(size.y);
-	add_byte(0xF4);          // global colortable, 8-bits per channel, 32 colors
-	add_byte(0),add_byte(0); // background color is 0, 1:1 pixel aspect ratio
-	for(int z=0;z<16;z++)add_byte(COLORS[z]>>16),add_byte(COLORS[z]>>8),add_byte(COLORS[z]); // global colortable
-	for(int z=0;z<16;z++)add_byte(0xFF),add_byte(0xFF),add_byte(0xFF); // padding entries
+	if(pal_size){
+		int n=log2(pal_size)-1;
+		add_byte(0xF0|n);        // global colortable, 8-bits per channel, N colors
+		add_byte(0),add_byte(0); // background color is 0, 1:1 pixel aspect ratio
+		for(int z=0;z<pal_size;z++)add_byte(pal[z]>>16),add_byte(pal[z]>>8),add_byte(pal[z]); // global colortable
+	}
+	else{
+		add_byte(0xF4);          // global colortable, 8-bits per channel, 32 colors
+		add_byte(0),add_byte(0); // background color is 0, 1:1 pixel aspect ratio
+		for(int z=0;z<16;z++)add_byte(COLORS[z]>>16),add_byte(COLORS[z]>>8),add_byte(COLORS[z]); // global colortable
+		for(int z=0;z<16;z++)add_byte(0xFF),add_byte(0xFF),add_byte(0xFF); // padding entries
+	}
 	add_short(0xFF21),add_byte(11),str_addz(&r,"NETSCAPE2.0"),add_byte(3),add_byte(1),add_short(0),add_byte(0); // NAB; loop gif forever
 	str_provision(&r,r.size+frames->c*(20+(size.x*size.y*2)));
 	EACH(frame,frames)if(image_is(frames->lv[frame])){
 		add_byte(0x21),add_byte(0xF9),add_byte(4); // graphic control extension
-		add_byte(9),add_short(((int)ln(delays->lv[frame]))),add_byte(16); // dispose to bg + has transparency, 100ths of a second delay, color 16 is transparent
+		add_byte(pal_size&&paltrans==-1?8:9);                      // dispose to bg + has transparency
+		add_short(((int)ln(delays->lv[frame])));                   // 100ths of a second delay
+		add_byte(pal_size&&paltrans==-1?0: pal_size?paltrans: 16); // transparent color index, if any
 		add_byte(0); // end GCE
 		add_byte(0x2C); // image descriptor
 		size=image_size(frames->lv[frame]);add_short(0),add_short(0),add_short(size.x),add_short(size.y); // window {x,y,width,height}
-		add_byte(0),add_byte(5); // no local colortable, minimum LZW code size = 5
+		add_byte(0); // no local colortable
+		unsigned int lw=pal_size?MAX(2,((int)log2(pal_size))): 5;
+		add_byte(lw); // minimum LZW code size
 		unsigned int count=0; char*data=frames->lv[frame]->b->sv;
-		unsigned int lw=5,w=1+lw,hi=(1<<lw)+1,ov=1<<(lw+1),sc=-1,b=0,nb=0,t[1<<14]={0},tm=(1<<14)-1,tc;int bo=r.c;
+		unsigned int w=1+lw,hi=(1<<lw)+1,ov=1<<(lw+1),sc=-1,b=0,nb=0,t[1<<14]={0},tm=(1<<14)-1,tc;int bo=r.c;
 		for(int y=0;y<size.y;y++)for(int x=0;x<size.x;x++){
-			int v=draw_color_trans(patterns_pal(patterns),data[y*size.x+x],count,x,y);
+			int d=0xFF&data[y*size.x+x], v=pal_size?MIN(pal_size,d): draw_color_trans(patterns_pal(patterns),d,count,x,y);
 			unsigned int c=sc;if(c==(unsigned)-1){add_bits(1<<lw);sc=v;continue;} // first write sends clear code
 			unsigned int k=(c<<8)|v,hash=((k>>12)^k)&tm,em=0;
 			for(unsigned int h=hash;t[h];h=(h+1)&tm)if(k==t[h]>>12){em=1,sc=t[h]&0xfff;}
@@ -3043,11 +3095,12 @@ lv* n_readgif(lv*self,lv*a){
 	fclose(f);return readgif(data,st.st_size,gray,frames);
 }
 char* n_writegif_raw(lv*a,int*len){
-	if(a->c<2)return NULL;lv*i=lml(0),*d=lml(0);
+	if(a->c<2)return NULL;lv*i=lml(0),*d=lml(0),*hint=a->c>2?ll(a->lv[2]):NULL;
 	lv*si=lil(a->lv[1])?a->lv[1]: lid(a->lv[1])?dgetv(a->lv[1],lmistr("frames")): l_list(a->lv[1]); if(!lil(si))si=l_list(si);
 	lv*sd=lid(a->lv[1])?dget(a->lv[1],lmistr("delays")) :lml(0);
 	EACH(z,si)if(image_is(si->lv[z])&&!is_empty(si->lv[z]))ll_add(i,si->lv[z]),ll_add(d,lil(sd)?lmn(z>=sd->c?3: CLAMP(1,ln(sd->lv[z]),65535)): lmn(ln(sd)));
-	if(i->c<1)return NULL;return writegif(i,d,len);
+	int pal[256], pal_size=0;if(hint){for(int z=0;z<256;z++){pal[z]=z>=hint->c?0: ((int)ln(hint->lv[z]));}pal_size=MIN(256,hint->c);}
+	if(i->c<1)return NULL;return writegif(i,d,len,pal,pal_size);
 }
 lv* n_writegif(lv*self,lv*a){
 	(void)self;lv*name=drom_to_utf8(l_first(a));int len=0;char*data=n_writegif_raw(a,&len);if(!data)return ZERO;

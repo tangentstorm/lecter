@@ -70,30 +70,43 @@ makelzww=(lw,bw)=>{
 		f() {wb(sc),ih(),wb((1<<lw)+1),nb>0&&bw(b&0xff)}
 	}
 }
-writegif=(frames,delays)=>{
+writegif=(frames,delays,palette,pal_size)=>{
+	let paltrans=-1;for(let z=0;z<pal_size;z++)if(palette[z]==-1)paltrans=z
+	pal_size=pal_size?max(2,2**ceil(Math.log2(pal_size))):0
 	const size=frames.reduce((s,f)=>rmax(s,f.size),rect(1,1)), pal=deck.patterns.pal.pix; let frame_index=0, payload=[]
 	const anim_ants       =(x,y)=>(0|((x+y+frame_index)/3))%2?15:0
 	const draw_pattern    =(pix,x,y)=>pix<2?(pix?1:0): pix>31?(pix==32?0:1): pal_pat(pal,pix,x,y)&1
 	const draw_color_trans=(pix,x,y)=>pix==ANTS?anim_ants(x,y): pix==0?16: pix>47?0: pix>31?pix-32: draw_pattern(pix,x,y)?15:0
 	const b=x=>payload.push(x&0xFF), s=x=>{b(x);b(x>>8)}, t=x=>x.split('').forEach(x=>b(x.charCodeAt(0)))
 	t('GIF89a'),s(size.x),s(size.y) // header, dimensions
-	b(0xF4)                         // global colortable, 8-bits per channel, 32 colors
-	b(0),b(0)                       // background color is 0, 1:1 pixel aspect ratio
-	for(let z=0;z<16;z++)b(COLORS[z]>>16),b(COLORS[z]>>8),b(COLORS[z]) // global colortable
-	for(let z=0;z<16;z++)b(0xFF         ),b(0xFF        ),b(0xFF     ) // padding entries
+	if(pal_size){
+		const n=Math.log2(pal_size)-1
+		b(0xF0|n)                       // global colortable, 8-bits per channel, N colors
+		b(0),b(0)                       // background color is 0, 1:1 pixel aspect ratio
+		for(let z=0;z<pal_size;z++)b(palette[z]>>16),b(palette[z]>>8),b(palette[z]) // global colortable
+	}else{
+		b(0xF4)                         // global colortable, 8-bits per channel, 32 colors
+		b(0),b(0)                       // background color is 0, 1:1 pixel aspect ratio
+		for(let z=0;z<16;z++)b(COLORS[z]>>16),b(COLORS[z]>>8),b(COLORS[z]) // global colortable
+		for(let z=0;z<16;z++)b(0xFF         ),b(0xFF        ),b(0xFF     ) // padding entries
+	}
 	s(0xFF21),b(11),t('NETSCAPE2.0'),b(3),b(1),s(0),b(0)               // NAB; loop gif forever
 	for(let z=0;z<frames.length;z++){
 		const frame=frames[z]
 		s(0xF921),b(4)                            // graphic control extension
-		b(9),s(delays[z]),b(16)                   // dispose to bg + has transparency, 100ths of a second delay, color 16 is transparent
+		b(pal_size&&paltrans==-1?8:9)             // dispose to bg + has transparency
+		s(delays[z])                              // 100ths of a second delay
+		b(pal_size&&paltrans==-1?0: pal_size?paltrans: 16) // transparent color index, if any
 		b(0)                                      // end GCE
 		b(0x2C)                                   // image descriptor
 		s(0),s(0),s(frame.size.x),s(frame.size.y) // dimensions
-		b(0),b(5)                                 // no local colortable,  minimum LZW code size
+		const lws=pal_size?max(2,Math.log2(pal_size)): 5
+		b(0),b(lws)                               // no local colortable,  minimum LZW code size
 		let bo=payload.length
-		let lw=makelzww(5,b=>{if(bo==payload.length)payload.push(0);payload[bo]++;payload.push(b);if(payload[bo]==255)bo=payload.length});
-		for(let y=0;y<frame.size.y;y++)for(let x=0;x<frame.size.x;x++)lw.w(draw_color_trans(frame.pix[y*frame.size.x+x],x,y))
-		lw.f(),b(0),frame_index++ // end of frame
+		let lw=makelzww(lws,b=>{if(bo==payload.length)payload.push(0);payload[bo]++;payload.push(b);if(payload[bo]==255)bo=payload.length});
+		for(let y=0;y<frame.size.y;y++)for(let x=0;x<frame.size.x;x++){
+			const d=frame.pix[y*frame.size.x+x];lw.w(pal_size?min(pal_size,d): draw_color_trans(d,x,y))
+		}lw.f(),b(0),frame_index++ // end of frame
 	};b(0x3B);return payload
 }
 writewav=sound=>{
@@ -321,6 +334,7 @@ unpack_field=x=>({
 	show     :ls(ifield(x,'show'     )),
 	scrollbar:lb(ifield(x,'scrollbar')),
 	border   :lb(ifield(x,'border'   )),
+	pattern  :ln(ifield(x,'pattern'  )),
 	style    :ls(ifield(x,'style'    )),
 	locked   :lb(ifield(x,'locked'   )),
 	align    :ALIGN[ls(ifield(x,'align'))],
@@ -486,15 +500,17 @@ modal_state=_=>({ // modal state
 	filter:0, grid:null,grid2:null, text:null,name:null,form0:null,form1:null,form2:null,
 	desc:'',path:'',path_suffix:'',filter:'', message:null,verb:null, cell:rect(),
 	from_listener:0,from_action:0,from_keycaps:0, act_go:0,act_card:0,act_gomode:0,act_trans:0,act_transo:0,act_sound:0,
-	time_curr:0,time_end:0,time_start:0, carda:null,cardb:null,trans:null,canvas:null,pending_grid_cell:rect(),
+	time_curr:0,time_end:0,time_start:0, carda:null,cardb:null,trans:null,canvas:null,hint:null,pending_grid_cell:rect(),pending_grid_cell_rich:0,
 })
 modal_state_clone=x=>{const r=Object.assign({},x);r.cell=rcopy(r.cell);return r}
 let ms=modal_state(), ms_stack=[]
 modal_push=type=>{if(ms.type){ms_stack.push({ms:modal_state_clone(ms),wid:wid_state_clone(wid)})}modal_enter(type)}
 modal_pop=value=>{
 	const l=ms.type=='link'&&value?rtext_string(ms.text.table):null
+	const p=value!=-1&&ms.type=='spanpattern'
 	modal_exit(value);if(ms_stack.length){const c=ms_stack.pop();ms=c.ms,wid=c.wid}
-	if(l){const c=rcopy(wid.cursor);field_stylespan(lms(''),l),wid.cursor=c}
+	if(l){const c=rcopy(wid.cursor);field_linkspan(l),wid.cursor=c}
+	if(p){const c=rcopy(wid.cursor);field_patspan(value);wid.cursor=c}
 }
 let kc={shift:0,lock:0,alt:0,comb:0,on:0,heading:null}, keydown={},keyup={}
 keycaps_force_enter=_=>{kc.shift=0,kc.lock=0,kc.alt=0,kc.comb=0,kc.on=1,ev.mu=ev.md=0}
@@ -506,7 +522,7 @@ let msg={ // interpreter event messages
 	arg_click:rect(),arg_drag:rect(),lastdrag:rect(),arg_release:rect(),arg_order:null,arg_run:null,arg_link:null,arg_ccell:null,arg_change:null,arg_navigate:null,
 }
 let li={hist:[],vars:new Map(),scroll:0} // listener state
-let ob={sel:[],show_bounds:1,show_names:0,show_cursor:0,show_margins:0,show_guides:1,move:0,move_first:0,resize:0,resize_first:0,handle:-1,prev:rect(),orig:rect()} // object editor state
+let ob={sel:[],show_bounds:1,show_names:0,show_cursor:0,show_margins:0,show_guides:1,move:0,move_first:0,resize:0,resize_first:0,handle:-1,prev:rect(),orig:rect(),pending_pattern:0} // object editor state
 let sc={target:null,others:[],next:null, f:null,prev_mode:null,xray:0,status:''} // script editor state
 script_save=x=>{const k=lms('script');mark_dirty();if(sc.target)iwrite(sc.target,k,x);if(sc.others)sc.others.map(o=>iwrite(o,k,x))}
 
@@ -726,7 +742,7 @@ widget_slider=(target,x)=>{
 		};comp_btn(0,-1,4,13,x.value!=x.min),comp_btn(b.w-14,1,5,0,x.value!=x.max)
 	}
 	if(sel&&ev.dir=='up')x.value-=x.step;if(sel&&ev.dir=='down')x.value+=x.step
-	if(in_layer()&&over(frame.clip)&&ev.scroll)x.value+=x.step*ev.scroll; x.value=slider_normalize(target,x.value)
+	if(!x.locked&&in_layer()&&over(frame.clip)&&ev.scroll)x.value+=x.step*ev.scroll; x.value=slider_normalize(target,x.value)
 	if(target&&Math.abs(ov-x.value)>(x.step/2)){msg.target_change=target,msg.arg_change=lmn(x.value);iwrite(target,lms('value'),msg.arg_change),mark_dirty()}
 	if(!x.locked&&in_widgets())wid.count++
 	frame.clip=oc
@@ -759,7 +775,10 @@ grid_exit=_=>{
 widget_grid=(target,x,value)=>{
 	if(x.show=='none')return 0; const hfnt=FONT_BODY, hsize=x.headers?font_h(hfnt)+5:0, showscroll=x.size.h<=(50+hsize)||x.size.w<16?0:x.scrollbar
 	const fnt=x.font?x.font:FONT_MONO, os=value.scroll, or=value.row, oc=value.col, files=x.headers==2, headers=files||x.size.h<=hsize?0:x.headers
-	const tk=tab_cols(value.table), nr=count(value.table), nc=tk.length, rh=font_h(fnt)+(x.lines?5:3)
+	const tk=tab_cols(value.table), nc=tk.length, rh=font_h(fnt)+(x.lines?5:3), _bg=tk.indexOf('_bg'), _fg=tk.indexOf('_fg'), _hideby=tk.indexOf('_hideby')
+	const p=grid_pv(target), nr=p.pv?p.pv.length: tab_rowcount(value.table)
+	const grid_cell_at=(col,row)=>tab_cell(value.table,col,p.permuted_row(row))
+
 	const fcol=!in_layer()?13:x.show=='invert'?32:1, bcol=x.show=='invert'?1:32, b=x.size, pal=deck.patterns.pal.pix
 	let sel=in_layer()&&x.show!='none'&&wid.active==wid.count
 	if(in_layer()&&dover(b)&&(ev.md||ev.mu||ev.drag)){if(!sel&&wid.gv)grid_exit(); wid.active=wid.count,sel=1}
@@ -767,27 +786,36 @@ widget_grid=(target,x,value)=>{
 	if(sel){if(wid.fv)field_exit();wid.ingrid=1,wid.g=x,wid.gv=value,wid.gt=target}; if(x.show!='transparent')draw_rect(b,bcol)
 	const bh=rect(b.x,b.y,b.w,headers?font_h(hfnt)+5:0), nrd=0|min(nr,((b.h-bh.h+1)/rh)), scrollmax=nr-nrd
 	const sbar=scrollbar(rect(b.x,b.y+(headers?bh.h-1:0),b.w,b.h-(headers?bh.h-1:0)),scrollmax,1,nrd,value.scroll,showscroll,x.show=='invert')
-	const bb=sbar.size; value.scroll=sbar.scroll, hwt=x.widths.reduce((x,y)=>x+y,0)
+	const bb=sbar.size; value.scroll=sbar.scroll
 	draw_box(x.lines?b:rect(b.x,bb.y,b.w,b.h-(bb.y-b.y)),0,sel?13:fcol)
-	const cw=n=>0|(n>=x.widths.length?((bb.w-hwt)/(nc-x.widths.length)):x.widths[n])
-	const grid_cell=pos=>{let cx=0;for(let z=0;z<min(nc,pos.x);z++)cx+=cw(z);return rclip(bb,rect(bb.x+cx,bb.y+rh*pos.y+1,pos.x==nc-1?bb.w-cx:cw(pos.x),rh-1))}
+
+	const cw=[];for(let z=0;z<nc;z++)cw.push(z>=x.widths.length?-1:x.widths[z])
+	if(_bg!=-1)cw[_bg]=0;if(_fg!=-1)cw[_fg]=0;if(_hideby!=-1)cw[_hideby]=0
+	const hwt=x.widths.reduce((sofar,_,i)=>sofar+cw[i],0), nwt=cw.filter(x=>x==-1).length
+	for(let z=x.widths.length;z<nc;z++)cw[z]=cw[z]==-1?0|((bb.w-hwt)/nwt):0
+
+	const grid_cell=pos=>{let cx=0;for(let z=0;z<min(nc,pos.x);z++)cx+=cw[z];return rclip(bb,rect(bb.x+cx,bb.y+rh*pos.y+1,pos.x==nc-1?bb.w-cx:cw[pos.x],rh-1))}
 	const grid_hcell=pos=>{const r=inset(grid_cell(pos),x.lines?1:0);if(pos.x&&x.lines)r.x+=1,r.w-=1;return r}
 	if(x.lines)draw_rect(bh,fcol);if(nc<=0)draw_textc(inset(bb,1),'(no data)',hfnt,fcol)
 	const rowb=n=>rect(bb.x,bb.y+rh*n,bb.w,rh)
 	const rowh=n=>inset(rect(bb.x+1,bb.y+rh*n+2,bb.w-2,rh-3),x.lines?0:-1)
 	let clicked=0,rsel=0,hrow=-1,hcol=-1;for(let y=0;y<nrd;y++){
+		if(_bg!=-1){
+			const p=clamp(0,ln(grid_cell_at(tk[_bg],y+value.scroll)),47)
+			if(p){const t=rowb(y);if(y==0)t.y+=1,t.h-=1; draw_rect(t,p)}
+		}
 		const ra=in_layer()&&over(bb)&&over(rowb(y));let cbox=rect()
 		if(ra&&x.bycell){for(let z=0;z<nc;z++){const cell=rect(z,y);if(over(grid_cell(cell)))hcol=z,cbox=grid_hcell(cell)}}
 		if(ra&&(ev.md||ev.drag)){rsel=1,hrow=y+value.scroll,draw_rect(x.bycell?cbox:rowh(y),fcol)}
-		if(ra&&ev.mu)clicked=1,value.row=y+value.scroll,value.col=hcol
+		if(ra&&ev.mu)clicked=1,value.row=p.permuted_row(y+value.scroll),value.col=hcol
 		if(ra&&!ev.drag)uicursor=cursor.point
-	}const rr=value.row-value.scroll;
+	}const rr=p.display_row(value.row)-value.scroll;
 	if(!rsel&&rr>=0&&rr<nrd&&(x.bycell?value.col>=0&&value.col<nc:1)){
-		hrow=value.row,hcol=value.col
+		hrow=p.display_row(value.row),hcol=value.col
 		draw_rect(x.bycell&&value.col>=0?grid_hcell(rect(value.col,rr)): rowh(rr),fcol)
 	}
-	for(let z=0,cols=0,cx=0;z<nc&&cx+cw(cols)<=bb.w;z++,cols++){
-		const hs=rect(bh.x+4+cx,bh.y+1,cw(cols)-5,bh.h-2)
+	let drawncol=0;for(let z=0,cols=0,cx=0;z<nc&&cx+cw[cols]<=bb.w;z++,cols++){
+		const hs=rect(bh.x+4+cx,bh.y+1,cw[cols]-5,bh.h-2)
 		if(hs.w<=0)continue; // suppressed column
 		if(headers){
 			const oa=target&&in_layer()&&over(hs)&&((ev.drag||ev.mu)?dover(hs):1)&&!wid.col_drag
@@ -795,36 +823,42 @@ widget_grid=(target,x,value)=>{
 			draw_textc(hs,tk[z],hfnt,x.lines^dp?bcol:fcol); if(oa&&!ev.drag)uicursor=cursor.point
 			if(oa&&ev.mu)msg.target_order=target,msg.arg_order=lms(tk[z])
 		}
-		if(cols&&x.lines)draw_invert(pal,rect(hs.x-3,b.y+1,1,b.h-2));cx+=cw(cols)
+		if(drawncol&&x.lines)draw_invert(pal,rect(hs.x-3,b.y+1,1,b.h-2));cx+=cw[cols],drawncol=1
 		for(let y=0;y<nrd;y++){
-			const cell=rect(hs.x-3,bb.y+rh*y+1,hs.w+5,rh-1), v=tab_cell(value.table,tk[z],y+value.scroll)
-			const fc=x.format[z]=='L'?'s':(x.format[z]||'s'), ccol=y+value.scroll==hrow&&(x.bycell?cols==hcol :1)?bcol:fcol
+			const cell=rect(hs.x-3,bb.y+rh*y+1,hs.w+5,rh-1), v=grid_cell_at(tk[z],y+value.scroll)
+			const fc=x.format[z]=='L'?'s':(x.format[z]||'s'), ccol=y+value.scroll==hrow&&(x.bycell?cols==hcol :1)?bcol: _fg==-1?fcol: clamp(0,ln(grid_cell_at(tk[_fg],y+value.scroll)),47)
 			const cf=ls(dyad.format(lms(`%${fc}`),fc=='j'||fc=='J'||fc=='a'?monad.list(v):v)), ip=rcenter(cell,ICONS[0].size)
 			const oc=frame.clip; frame.clip=rclip(cell,frame.clip)
 			if     (x.format[z]=='I'){const i=clamp(0,ln(v),8);if(i<8)draw_icon(ip,ICONS[i],ccol)}
 			else if(x.format[z]=='B'){if(lb(v))draw_icon(ip,ICONS[ICON.chek],ccol)}
+			else if(x.format[z]=='t'||x.format[z]=='T'){
+				const r=rect(hs.x+1,bb.y+rh*y,hs.w-2,rh), l=layout_richtext(deck,rtext_cast(v),fnt,ALIGN.left,r.w), t=l.size
+				draw_text_rich(rect(r.x,r.y+ceil(t.y<r.h?(r.h-t.y)/2.0:0),r.w,r.h),l,ccol,0)
+			}
 			else{('fcCihH'.indexOf(x.format[z])>=0?draw_textr:draw_text_fit)(rect(hs.x+1,bb.y+rh*y,hs.w-2,rh),cf,fnt,ccol)} // right-align numeric
 			frame.clip=oc
-			if(!x.locked&&sel&& ((ev.dclick&&over(cell)) || (ev.action&&x.bycell&&z==value.col&&y+value.scroll==value.row))){
-				const f=x.format[z]||'s', tc=rect(z,y+value.scroll)
-				if     (f=='I'||f=='L'){} // no editing allowed
-				else if(f=='B'||f=='b'){grid_edit_cell(tc,lmn(!lb(v)))} // toggle
+			if(!x.locked&&sel&& ((ev.dclick&&over(cell)) || (ev.action&&x.bycell&&z==value.col&&y+value.scroll==p.display_row(value.row)))){
+				const f=x.format[z]||'s', tc=rect(z,y+value.scroll), tpc=rect(tc.x,p.permuted_row(tc.y))
+				if     (f=='I'||f=='L'||f=='T'){} // no editing allowed
+				else if(f=='B'||f=='b'){grid_edit_cell(tpc,lms(0+(!lb(v))))} // toggle
 				else{
+					ms.pending_grid_cell_rich=f=='t'
 					wid.pending_grid_edit=1,ms.pending_grid_cell=grid_cell(rect(tc.x,tc.y-value.scroll))
 					ms.pending_grid_cell.y-=1,ms.pending_grid_cell.w+=1,ms.pending_grid_cell.h+=2
-					ms.cell=tc,ms.text=fieldstr(lms(cf))
+					ms.cell=tpc,ms.text=fieldstr(f=='t'?v:lms(cf))
 				}
 			}
 		}
 	}
 	if(x.lines)for(let y=1;y<nrd;y++)draw_hline(bb.x,bb.x+bb.w,bb.y+rh*y,fcol)
-	if(!x.locked&&in_layer()&&target)for(let z=0,cx=bh.x;z<nc;cx+=cw(z),z++){
-		const h=rect(cx+cw(z)-1,bh.y,5,bh.h);if(h.x+h.w>b.x+b.w)break
+	if(!x.locked&&in_layer()&&target)for(let z=0,cx=bh.x;z<nc;cx+=cw[z],z++){
+		if(cw[z]==0)continue
+		const h=rect(cx+cw[z]-1,bh.y,5,bh.h);if(h.x+h.w>b.x+b.w)break
 		if(over(h))draw_vline(h.x+2,h.y,h.y+h.h,13)
-		if(ev.md&&dover(h))wid.col_drag=1,wid.col_num=z,wid.col_orig=cw(z)
+		if(ev.md&&dover(h))wid.col_drag=1,wid.col_num=z,wid.col_orig=cw[z]
 		if(sel&&wid.col_drag&&wid.col_num==z&&ev.drag){
 			const s=min(max(10,wid.col_orig+(ev.pos.x-ev.dpos.x)),bb.w-10),i=z;uicursor=cursor.drag
-			iwrite(target,lms('widths'),lml(range(max(x.widths.length,i+1)).map(z=>lmn(i==z?s:cw(z))))),mark_dirty()
+			iwrite(target,lms('widths'),lml(range(max(x.widths.length,i+1)).map(z=>lmn(i==z?s:cw[z])))),mark_dirty()
 		}
 	}
 	if(target&&os!=value.scroll)iwrite(target,lms('scroll'),lmn(value.scroll)),mark_dirty()
@@ -848,34 +882,39 @@ grid_insertrow=_=>{
 	const f=ls(grid_format()), x=wid.gv.table, r=lmt(), s=wid.gv.row+1
 	tab_cols(x).map((k,col)=>{
 		const o=tab_get(x,k)
-		tab_set(r,k,range(o.length+1).map(i=>(i==s)?('sluro'.indexOf(f[col])>=0?lms(''):ZERO): o[i-(i>=s?1:0)]))
+		tab_set(r,k,range(o.length+1).map(i=>(i==s)?('slurotT'.indexOf(f[col])>=0?lms(''):ZERO): o[i-(i>=s?1:0)]))
 	});grid_edit(r),iwrite(wid.gt,lms('col'),ZERO),iwrite(wid.gt,lms('row'),lmn(s))
-	const os=wid.gv.scroll,ns=grid_scrollto(x,wid.g,os,s);if(os!=ns){wid.gv.scroll=ns,iwrite(wid.gt,lms('scroll'),lmn(ns))}
+	const os=wid.gv.scroll,ns=grid_scrollto(wid.gt,wid.g,os,s);if(os!=ns){wid.gv.scroll=ns,iwrite(wid.gt,lms('scroll'),lmn(ns))}
 }
 grid_edit_cell=(cell,v)=>{
 	wid.gv.col=cell.x,iwrite(wid.gt,lms('col'),lmn(cell.x))
 	wid.gv.row=cell.y,iwrite(wid.gt,lms('row'),lmn(cell.y))
-	msg.target_ccell=wid.gt,msg.arg_ccell=lms(ls(v))
+	msg.target_ccell=wid.gt,msg.arg_ccell=v
 }
 grid_keys=(code,shift)=>{
-	const fnt=wid.g.font?wid.g.font:FONT_MONO, hfnt=FONT_BODY, nr=count(wid.gv.table), nc=tab_cols(wid.gv.table).length
+	const fnt=wid.g.font?wid.g.font:FONT_MONO, hfnt=FONT_BODY, tk=tab_cols(wid.gv.table), nc=tk.length
+	const p=grid_pv(wid.gt), npr=tab_rowcount(wid.gv.table), nr=p.pv?p.pv.length: npr
 	let m=0, r=wid.gv.row, c=wid.gv.col
-	const rh=font_h(fnt)+5, bh=wid.g.headers?font_h(hfnt)+5:0, nrd=min(nr,0|((wid.g.size.h-bh+1)/rh))
-	if(code=='ArrowUp'   ){m=1;if(r==-1){r=0}else{r-=1}}
-	if(code=='ArrowDown' ){m=1;if(r==-1){r=0}else{r+=1}}
-	if(code=='ArrowLeft' ){m=1;if(c==-1){c=0}else{c-=1}}
-	if(code=='ArrowRight'){m=1;if(c==-1){c=0}else{c+=1}}
-	if(code=='PageUp'    ){m=1;if(r==-1)r=0;r-=nrd}
-	if(code=='PageDown'  ){m=1;if(r==-1)r=0;r+=nrd}
-	if(code=='Home'      ){m=1,r=0}
-	if(code=='End'       ){m=1,r=nr-1}
+	const rh=font_h(fnt)+5, bh=wid.g.headers?font_h(hfnt)+5:0, nrd=min(nr,0|((wid.g.size.h-bh+1)/rh)), wd=wid.g.widths
+	const cw=[];for(let z=0;z<nc;z++)cw.push(z>=wd.length?1:wd[z])
+	{const _bg    =tk.indexOf('_bg'    );if(_bg    !=-1)cw[_bg    ]=0}
+	{const _fg    =tk.indexOf('_fg'    );if(_fg    !=-1)cw[_fg    ]=0}
+	{const _hideby=tk.indexOf('_hideby');if(_hideby!=-1)cw[_hideby]=0}
+	if(code=='Home'      ){m=1,r=p.pv?first(p.pv): 0}
+	if(code=='End'       ){m=1,r=p.pv?last (p.pv): npr-1}
+	if(code=='ArrowUp'   ){m=1;if(r==-1){r=p.pv?first(p.pv):0}else if(!p.pv){r-=1}else{for(let z=p.pv.length-1;z>=0;z--){const n=p.pv[z];if(n<r){r=n;break}}}}
+	if(code=='ArrowDown' ){m=1;if(r==-1){r=p.pv?first(p.pv):0}else if(!p.pv){r+=1}else{for(let z=0;z<p.pv.length   ;z++){const n=p.pv[z];if(n>r){r=n;break}}}}
+	if(code=='PageUp'    ){m=1;if(r==-1){r=p.pv?first(p.pv):0}if(!p.pv){r-=nrd}else{for(let c=0,z=p.pv.length-1;z>=0&&c<nrd;z--){const n=p.pv[z];if(n<r)r=n,c++}}}
+	if(code=='PageDown'  ){m=1;if(r==-1){r=p.pv?first(p.pv):0}if(!p.pv){r+=nrd}else{for(let c=0,z=0;z<p.pv.length   &&c<nrd;z++){const n=p.pv[z];if(n>r)r=n,c++}}}
+	if(code=='ArrowLeft' ){m=1;if(c==-1){c=0}else{let d=c-1;while(d>0   &&cw[d]==0)d--;if(d>=nc||((d!=-1)&&cw[d]))c=d}}
+	if(code=='ArrowRight'){m=1;if(c==-1){c=0}else{let d=c+1;while(d<nc-1&&cw[d]==0)d++;if(d>=nc||((d!=-1)&&cw[d]))c=d}}
 	if(!wid.g.locked&&(code=='Backspace'||code=='Delete'))grid_deleterow()
 	if(!m)return;if(ms.type=='prototype_attrs')ms.text.table=ms.name.table=null
-	wid.gv.row=r=max(0,min(r,nr-1)),wid.gv.col=c=max(0,min(c,nc-1));if(wid.gt){
+	wid.gv.row=r=max(0,min(r,npr-1)),wid.gv.col=c=max(0,min(c,nc-1));if(wid.gt){
 		iwrite(wid.gt,lms('row'),lmn(r)),iwrite(wid.gt,lms('col'),lmn(c)),mark_dirty()
 		msg.target_click=wid.gt,msg.arg_click=rect(0,r)
 	}
-	const os=wid.gv.scroll;if(r-os<0)wid.gv.scroll=r;if(r-os>=nrd)wid.gv.scroll=r-(nrd-1)
+	const os=wid.gv.scroll,rs=p.display_row(r);if(rs-os<0)wid.gv.scroll=rs;if(rs-os>=nrd)wid.gv.scroll=rs-(nrd-1)
 	if(wid.gt&&os!=wid.gv.scroll)iwrite(wid.gt,lms('scroll'),lmn(wid.gv.scroll)),mark_dirty()
 }
 
@@ -887,7 +926,7 @@ layout_index=(x,p)=>{
 		return z==x.lines.length-1?x.layout.length: r.y
 	}return x.layout.length
 }
-layout_last=(x,font)=>x.layout.length>0?last(x.layout): {pos:rect(0,0,1,font_h(font)),line:0,char:'\0',font,arg:ZERO}
+layout_last=(x,font)=>x.layout.length>0?last(x.layout): {pos:rect(0,0,1,font_h(font)),line:0,char:'\0',font,arg:ZERO,pat:1}
 layout_cursor=(x,index,font,f)=>{
 	const bw=f.size.w-5-(f.scrollbar?ARROWS[0].size.x+3:0), bx=f.align=='center'?0|(bw/2): f.align==ALIGN.right?bw: 0
 	const r=x.layout.length>0?rcopy(x.layout[min(index,x.layout.length-1)].pos):rect(bx,0,1,font_h(font))
@@ -903,7 +942,8 @@ field_exit=_=>{field_change(),kc.on=0;wid.infield=0,wid.fv=null,wid.ft=null,wid.
 widget_field=(target,x,value)=>{
 	if(x.show=='none')return; if(x.size.h<=50||x.size.w<16)x.scrollbar=0
 	const l=!in_layer(), fnt=x.font?x.font: x.style=='code'?FONT_MONO: FONT_BODY, b=x.size, pal=deck.patterns.pal.pix
-	const fcol=(l&&!x.locked)?13:x.show=='invert'?32:1, bcol=x.show=='invert'?1:32, os=value.scroll
+	const fcol=(l&&!x.locked)?13:x.show=='invert'?32:1, bcol=x.show=='invert'?x.pattern:32, os=value.scroll
+	const tfcol=(l&&!x.locked&&x.pattern==1)?13:x.show=='invert'?32:x.pattern
 	if(x.show!='transparent')draw_rect(rclip(b,frame.clip),bcol); if(x.border)draw_box(b,0,fcol)
 	let bi=inset(b,2);if(x.scrollbar)bi.w-=ARROWS[0].size.x+3
 	if(!l&&!x.locked&&over(bi)&&(ev.drag?dover(bi):1))uicursor=cursor.ibeam
@@ -941,9 +981,9 @@ widget_field=(target,x,value)=>{
 			if(a&&ev.mu&&dover(pos))msg.target_link=target,msg.arg_link=g.arg
 		}
 		const csel=sel&&wid.cursor.x!=wid.cursor.y&&z>=min(wid.cursor.x,wid.cursor.y)&&z<max(wid.cursor.x,wid.cursor.y)
-		if(csel)draw_rect(rclip(pos,frame.clip),fcol)
+		if(csel)draw_rect(rclip(pos,frame.clip),tfcol)
 		if(image_is(g.arg)){image_paste(pos,frame.clip,g.arg,frame.image,x.show!='transparent');if(csel)draw_invert(pal,pos)}
-		else{draw_char(pos,g.font,g.char,csel?bcol:fcol)}
+		else{draw_char(pos,g.font,g.char,csel?bcol: g.pat==1?tfcol:g.pat)}
 	}
 	if(sel&&wid.cursor_timer<FIELD_CURSOR_DUTY){
 		const c=layout_cursor(layout,wid.cursor.y,fnt,x);c.y-=value.scroll;c.y+=bi.y,c.x+=bi.x
@@ -967,8 +1007,8 @@ field_apply=(v,c)=>{
 }
 field_undo=_=>{const x=wid.hist[--(wid.hist_cursor)];field_apply(x[0],x[1])}
 field_redo=_=>{const x=wid.hist[(wid.hist_cursor)++];field_apply(x[2],x[3])}
-field_edit=(font,arg,text,pos)=>{
-	const c=rect(), spliced=rtext_splice(wid.fv.table,font,arg,text,pos,c); wid.hist=wid.hist.slice(0,wid.hist_cursor)
+field_edit=(font,arg,pat,text,pos)=>{
+	const c=rect(), spliced=rtext_splice(wid.fv.table,font,arg,pat,text,pos,c); wid.hist=wid.hist.slice(0,wid.hist_cursor)
 	wid.hist.push([wid.fv.table,rect(wid.cursor.x,wid.cursor.y), spliced,c]),field_redo()
 }
 field_editr=(rtext,pos)=>{
@@ -992,7 +1032,7 @@ field_comment=_=>{
 		if(ac){if(layout[z].char=='#'){z++;if(z<p.y&&layout[z].char==' ')z++}}else{r+='# '}
 		while(z<p.y&&layout[z].char!='\n')r+=layout[z++].char
 		if(z<p.y&&layout[z].char=='\n')r+='\n',z++
-	}field_edit(lms(''),lms(''),r,p),wid.cursor=rect(p.x,wid.cursor.y)
+	}field_edit(lms(''),lms(''),1,r,p),wid.cursor=rect(p.x,wid.cursor.y)
 }
 field_indent=add=>{
 	const s=field_sel_lines(), p=s.sel, layout=s.layout.layout; let r='',z=p.x;while(z<p.y){
@@ -1000,13 +1040,18 @@ field_indent=add=>{
 		while(z<p.y&&layout[z].char==' ')r+=' ',z++
 		while(z<p.y&&layout[z].char!='\n')r+=layout[z++].char
 		if(z<p.y&&layout[z].char=='\n')r+='\n',z++
-	}field_edit(lms(''),lms(''),r,p);wid.cursor=rect(p.x,wid.cursor.y)
+	}field_edit(lms(''),lms(''),1,r,p);wid.cursor=rect(p.x,wid.cursor.y)
 }
-field_stylespan=(font,arg)=>field_edit(font,arg,ls(rtext_string(wid.fv.table,wid.cursor)),wid.cursor)
+field_fontspan=font=>{const s=rtext_span(wid.fv.table,wid.cursor);tab_get(s,'font').fill(font    ),field_editr(rtext_cat([s]),wid.cursor)}
+field_linkspan=link=>{const s=rtext_span(wid.fv.table,wid.cursor);tab_get(s,'arg' ).fill(link    ),field_editr(rtext_cat([s]),wid.cursor)}
+field_patspan =pat =>{const s=rtext_span(wid.fv.table,wid.cursor);tab_get(s,'pat' ).fill(lmn(pat)),field_editr(rtext_cat([s]),wid.cursor)}
+field_input_raw=text=>{
+	const t=wid.fv.table, i=rtext_get(t,wid.cursor.y), f=i<0?lms(''):tab_cell(t,'font',i), p=i<0?1:ln(tab_cell(t,'pat',i))
+	field_edit(f,lms(''),p,clchars(text),wid.cursor)
+}
 field_input=text=>{
 	if(text=='\n'){if(ms.type=='save')ev.action=1;if(ms.type=='save'||ev.shift)return}
-	const rtext_font=(table,x)=>{const i=rtext_get(table,x);return i<0?lms(''):tab_cell(table,'font',i)}
-	field_edit(rtext_font(wid.fv.table,wid.cursor.y),lms(''),clchars(text),wid.cursor)
+	field_input_raw(text)
 }
 field_keys=(code,shift)=>{
 	if(code=='Enter'&&ms.type=='gridcell'){modal_exit(1),ev.action=0;return}
@@ -1022,8 +1067,8 @@ field_keys=(code,shift)=>{
 	if(code=='PageDown'    ){m=1;if(l>=0)wid.cursor.y=layout_index(layout,rect(c.x-1,layout.lines[l].pos.y+layout.lines[l].pos.h+bi.h))}
 	if(code=='Home'        ){m=1;if(ev.alt){wid.cursor.y=0                   }else if(l>=0)wid.cursor.y=layout.lines[l].range.x;}
 	if(code=='End'         ){m=1;if(ev.alt){wid.cursor.y=layout.layout.length}else if(l>=0)wid.cursor.y=layout.lines[l].range.y+(l==layout.lines.length-1?1:0);}
-	if(code=='Backspace'   ){field_edit(lms(''),lms(''),'',s?wid.cursor:rect(wid.cursor.y-1,wid.cursor.y))}
-	if(code=='Delete'      ){field_edit(lms(''),lms(''),'',s?wid.cursor:rect(wid.cursor.y,wid.cursor.y+1))}
+	if(code=='Backspace'   ){field_edit(lms(''),lms(''),1,'',s?wid.cursor:rect(wid.cursor.y-1,wid.cursor.y))}
+	if(code=='Delete'      ){field_edit(lms(''),lms(''),1,'',s?wid.cursor:rect(wid.cursor.y,wid.cursor.y+1))}
 	if(code=='Enter'       ){
 		if(shift&&wid.ft){field_change(),msg.target_run=wid.ft,msg.arg_run=rtext_string(wid.fv.table,s?wid.cursor:rect(0,RTEXT_END))}
 		else{
@@ -1084,11 +1129,11 @@ ui_button  =(r,label,    enable,func )=>widget_button(null,{text:label,size:r,fo
 ui_toggle  =(r,label,inv,enable,func )=>widget_button(null,{text:label,size:r,font:FONT_MENU,style:'round',show:inv?'invert':'solid',locked:!enable},0,func)
 ui_radio   =(r,label,    enable,value)=>widget_button(null,{text:label,size:r,font:FONT_BODY,style:'radio',show:             'solid',locked:!enable},value)
 ui_checkbox=(r,label,    enable,value)=>widget_button(null,{text:label,size:r,font:FONT_BODY,style:'check',show:             'solid',locked:!enable},value)
-ui_field   =(r,       value)=>widget_field(null,{size:r,font:FONT_BODY,show:'solid',scrollbar:0,border:1,style:'plain',align:ALIGN.left,locked:0},value)
-ui_dfield  =(r,enable,value)=>widget_field(null,{size:r,font:FONT_BODY,show:'solid',scrollbar:0,border:1,style:'plain',align:ALIGN.left,locked:!enable},value)
-ui_textedit=(r,border,value)=>widget_field(null,{size:r,font:FONT_BODY,show:'solid',scrollbar:1,border  ,style:'plain',align:ALIGN.left,locked:0},value)
-ui_codeedit=(r,border,value)=>widget_field(null,{size:r,font:FONT_MONO,show:'transparent',scrollbar:1,border  ,style:'code' ,align:ALIGN.left,locked:running()},value)
-ui_richedit=(r,border,value)=>widget_field(null,{size:r,font:FONT_BODY,show:'solid',scrollbar:1,border  ,style:'rich' ,align:ALIGN.left,locked:0},value)
+ui_field   =(r,       value)=>widget_field(null,{size:r,font:FONT_BODY,show:'solid',scrollbar:0,border:1,style:'plain',align:ALIGN.left,locked:0,pattern:1},value)
+ui_dfield  =(r,enable,value)=>widget_field(null,{size:r,font:FONT_BODY,show:'solid',scrollbar:0,border:1,style:'plain',align:ALIGN.left,locked:!enable,pattern:1},value)
+ui_textedit=(r,border,value)=>widget_field(null,{size:r,font:FONT_BODY,show:'solid',scrollbar:1,border  ,style:'plain',align:ALIGN.left,locked:0,pattern:1},value)
+ui_codeedit=(r,border,value)=>widget_field(null,{size:r,font:FONT_MONO,show:'transparent',scrollbar:1,border  ,style:'code' ,align:ALIGN.left,locked:running(),pattern:1},value)
+ui_richedit=(r,border,value)=>widget_field(null,{size:r,font:FONT_BODY,show:'solid',scrollbar:1,border  ,style:'rich' ,align:ALIGN.left,locked:0,pattern:1},value)
 ui_table   =(r,widths,format,value)=>widget_grid(null,{size:r,font:FONT_BODY,widths   ,format   ,headers:2,scrollbar:1,lines:0,bycell:0,show:'solid',locked:1},value)
 ui_list    =(r,              value)=>widget_grid(null,{size:r,font:FONT_BODY,widths:[],format:'',headers:0,scrollbar:1,lines:0,bycell:0,show:'solid',locked:1},value)
 
@@ -1276,7 +1321,7 @@ sound_record=_=>{
 
 // Modal Helpers
 
-table_decode=(text,format)=>ms.edit_json?monad.table(dyad.parse(lms('%j'),text)): n_readcsv(count(format)?[text,format]:[text])
+table_decode=(text,format)=>ms.edit_json?monad.table(dyad.parse(lms('%J'),text)): n_readcsv(count(format)?[text,format]:[text])
 transit_enumerate=_=>monad.table(monad.keys(deck.transit))
 sounds_enumerate=_=>{
 	const r=lmt(),iv=[],nv=[],bv=[],sv=[];tab_set(r,'icon',iv),tab_set(r,'name',nv),tab_set(r,'bytes',bv),tab_set(r,'secs',sv)
@@ -1358,7 +1403,7 @@ modal_enter=type=>{
 	if(type=='button_props')ms.name=fieldstr(ifield(ob.sel[0],'name')),ms.text=fieldstr(ifield(ob.sel[0],'text'  )),ms.form0=fieldstr(ifield(ob.sel[0],'shortcut'))
 	if(type=='field_props' )ms.name=fieldstr(ifield(ob.sel[0],'name')),ms.text=fieldstr(ifield(ob.sel[0],'value' ))
 	if(type=='grid_props'  )ms.name=fieldstr(ifield(ob.sel[0],'name')),ms.text=fieldstr(ifield(ob.sel[0],'format'))
-	if(type=='grid_props'  )ms.form0=fieldstr(lms(fjson(monad.cols(ifield(ob.sel[0],'value'))))),ms.edit_json=1
+	if(type=='grid_props'  )ms.form0=fieldstr(lms(flove(monad.cols(ifield(ob.sel[0],'value'))))),ms.edit_json=1
 	if(type=='canvas_props')ms.name=fieldstr(ifield(ob.sel[0],'name')),ms.text=fieldstr(ifield(ob.sel[0],'scale' ))
 	if(type=='slider_props'){
 		ms.name =fieldstr(   ifield(ob.sel[0],'name'    )    )
@@ -1435,7 +1480,7 @@ modal_enter=type=>{
 }
 modal_exit=value=>{
 	wid=ms.old_wid
-	if(ms.type=='gridcell'&&value)grid_edit_cell(ms.cell,rtext_string(ms.text.table))
+	if(ms.type=='gridcell'&&value)grid_edit_cell(ms.cell,ms.pending_grid_cell_rich?rtext_cast(ms.text.table):rtext_string(ms.text.table))
 	if(ms.type=='card_props'){iwrite(ifield(deck,'card'),lms('name'),rtext_string(ms.name.table)),mark_dirty()}
 	if(ms.type=='grid_props'){
 		const t=table_decode(rtext_string(ms.form0.table),rtext_string(ms.text.table))
@@ -1465,6 +1510,7 @@ modal_exit=value=>{
 		const name=rtext_string(ms.name.table);rename_sound(deck,au.target,name)
 		au.mode='stopped',modal_enter('sounds'),ms.grid.row=dkix(deck.sounds,name);return
 	}
+	if(ms.type=='widpattern'&&value!=-1)ob.sel.map(w=>iwrite(w,lms('pattern'),lmn(value)))
 	if(ms.subtype=='confirm_new'   &&value)load_deck(deck_read(''))
 	if(ms.subtype=='confirm_script'&&value)finish_script()
 	if(ms.subtype=='multiscript'   &&value)setscript(ob.sel)
@@ -1510,6 +1556,7 @@ modals=_=>{
 				{const g=rect(c.x,c.y-3+c.h,c.w,7);if(over(g)){draw_hline(c.x,c.x+c.w,c.y+c.h-1,13),gutter=z+1}}
 			}
 		};frame.clip=oc
+		draw_textc(rect(b.x+65,b.y+b.h-20,b.w-2*65,20),`Card ${ln(ifield(curr,'index'))+1} of ${count(deck.cards)}`,FONT_BODY,1)
 		if(ui_button(rect(b.x+b.w-60,b.y+b.h-20,60,20),'OK',1)||ev.exit||ev.action)modal_exit(0)
 		const c=rect(b.x,b.y+b.h-20)
 		if(ui_button(rect(c.x,c.y,60,20),'New',1)){
@@ -1633,7 +1680,7 @@ modals=_=>{
 		const b=draw_modalbox(rect(170,170))
 		draw_textc(rect(b.x,b.y-5,b.w,20),'Fonts',FONT_MENU,1)
 		const gsize=rect(b.x,b.y+15,b.w,b.h-20-50-25)
-		if(ms.grid.scroll==-99){ms.grid.scroll=grid_scrollto(ms.grid.table,{size:gsize,font:FONT_BODY,headers:0},-1,ms.grid.row)}
+		if(ms.grid.scroll==-99){ms.grid.scroll=grid_scrollto(tab_rowcount(ms.grid.table),{size:gsize,font:FONT_BODY,headers:0},-1,ms.grid.row)}
 		const choose=ui_table(gsize,[16],'Is',ms.grid)
 		let psize=rect(b.x,gsize.y+gsize.h+5,b.w,50);draw_box(psize,0,1),psize=inset(psize,2)
 		if(ms.grid.row>=0){
@@ -1642,7 +1689,7 @@ modals=_=>{
 		if(ui_button(rect(c.x,c.y,60,20),'OK',ms.grid.row>=0)||choose){
 			const nf=tab_cell(ms.grid.table,'name',ms.grid.row),nested=ms_stack.length>0;modal_pop(1)
 			if(uimode=='object'&&!nested){ob_edit_prop('font',nf)}
-			else if(wid.fv&&wid.cursor.x!=wid.cursor.y){const c=wid.cursor;field_stylespan(nf,lms('')),wid.cursor=c,mark_dirty()}
+			else if(wid.fv&&wid.cursor.x!=wid.cursor.y){const c=wid.cursor;field_fontspan(nf),wid.cursor=c,mark_dirty()}
 			else if(wid.ft){iwrite(wid.ft,lms('font'),nf),wid.f=unpack_field(ms.old_wid.ft),wid.fv=unpack_field_value(ms.old_wid.ft),mark_dirty()}
 		};c.x-=65
 		if(ui_button(rect(c.x,c.y,60,20),'Cancel',1)||ev.exit)modal_pop(0)
@@ -1849,7 +1896,7 @@ modals=_=>{
 	else if(ms.type=='gridcell'){
 		const c=ms.pending_grid_cell
 		draw_rect(inset(c,-2),32),draw_box(inset(c,-2),0,1)
-		ui_field(c,ms.text)
+		if(ms.pending_grid_cell_rich){ui_richedit(c,1,ms.text)}else{ui_field(c,ms.text)}
 		if(ev.click&&!over(c))modal_exit(1)
 		if(ev.exit)modal_exit(0)
 	}
@@ -1878,7 +1925,7 @@ modals=_=>{
 						const c=anim_pattern(v,x,y,z),p=draw_pattern(c,x+off.x,y+off.y)
 						frame.pix[x+(i.size.x*y)]=c>=32?c: p?1:bg
 					}frames.push(bg_has_lasso()?image_mask(frame,dr.mask):frame)
-				}save_bin(name,writegif(a?frames:[frames[0]], a?frames.map(x=>10):[10]))
+				}save_bin(name,writegif(a?frames:[frames[0]], a?frames.map(x=>10):[10],new Int32Array(256),0))
 			}
 			if(subtype=='save_deck'    )savedeck()
 			if(subtype=='save_locked'  )iwrite(deck,lms('locked'),ONE),savedeck(),iwrite(deck,lms('locked'),ZERO)
@@ -1889,7 +1936,8 @@ modals=_=>{
 				let f=image_is(x)?[x]:     lid(x)?ll(dget(x,lms('frames'))||lml([])): lil(x)?ll(x): []
 				let d=image_is(x)?lml([]): lid(x)?   dget(x,lms('delays'))||lml([] ): lml([])
 				let ff=[],fd=[];f.map((v,i)=>{if(image_is(v))ff.push(v),fd.push(0|clamp(1,!lil(d)?ln(d): i>=count(d)?3: ln(d.v[i]),65535))})
-				if((lil(x)||lid(x)||image_is(x))&&f.length){save_bin(name,writegif(ff,fd))}
+				let p=new Int32Array(256),pn=0;if(ms.hint){for(let z=0;z<256;z++)p[z]=z>=ms.hint.length?0:ms.hint[z],pn=min(256,ms.hint.length)}
+				if((lil(x)||lid(x)||image_is(x))&&f.length){save_bin(name,writegif(ff,fd,p,pn))}
 				else if(sound_is(x))                       {save_bin(name,writewav(x))}
 				else if(array_is(x))                       {save_bin(name,writearray(x))}
 				else if(deck_is(x))                        {save_deck(name,x)}
@@ -1958,25 +2006,25 @@ modals=_=>{
 		if(ev.dir=='down' )dr.brush=(dr.brush+grid.x             )%(grid.x*grid.y)
 		dr.brush=clamp(0,dr.brush,(6*4)+count(br)-1)
 	}
-	else if(ms.type=='pattern'||ms.type=='fill'){
-		const grid=rect(8,dr.color?2:4), ss=25, gs=ss+4, m=5, lh=font_h(FONT_BODY)
-		const getv=_=>ms.type=='pattern'?dr.pattern  :dr.fill
-		const setv=x=>ms.type=='pattern'?dr.pattern=x:dr.fill=x
+	else if(ms.type=='pattern'||ms.type=='fill'||ms.type=='widpattern'||ms.type=='spanpattern'){
+		const grid=rect(8,6), ss=25, gs=ss+4, m=5, lh=font_h(FONT_BODY)
+		const getv=_=>ms.type=='widpattern'||ms.type=='spanpattern'?ob.pending_pattern  :ms.type=='pattern'?dr.pattern  :dr.fill
+		const setv=x=>ms.type=='widpattern'||ms.type=='spanpattern'?ob.pending_pattern=x:ms.type=='pattern'?dr.pattern=x:dr.fill=x
 		const b=draw_modalbox(rect(m+(grid.x*gs)+m,m+(grid.y*gs)+lh+m)); let v=getv()
-		draw_textc(rect(b.x,b.y+b.h-lh,b.w,lh),`Choose a ${ms.type=='fill'?'fill':'stroke'} ${dr.color?'color':'pattern'}.`,FONT_BODY,1)
+		draw_textc(rect(b.x,b.y+b.h-lh,b.w,lh),
+			ms.type=='widpattern'||ms.type=='spanpattern'?'Choose a pattern.':
+			`Choose a ${ms.type=='fill'?'fill':'stroke'} pattern.`,FONT_BODY,1)
 		for(let z=0;z<grid.x*grid.y;z++){
-			const s=rint(rect(b.x+m+2+gs*(z%grid.x),b.y+m+2+gs*(0|(z/grid.x)),ss,ss)), ci=!dr.color?z: z<2?z: 31+z
+			const s=rint(rect(b.x+m+2+gs*(z%grid.x),b.y+m+2+gs*(0|(z/grid.x)),ss,ss)), ci=z
 			draw_rect(s,ci==0?32:ci); if(ci==v)draw_box(inset(s,-2),0,1)
 			const a=dover(s)&&over(s), cs=(ci==v&&ev.action), cl=cs||((ev.md||ev.drag)&&a), cr=cs||(ev.mu&&a)
-			if(cl)draw_invert(pal,inset(s,-1)); if(cr){setv(ci),modal_exit(ci);break}
+			if(cl)draw_invert(pal,inset(s,-1)); if(cr){setv(ci),modal_pop(ci);break}
 		}
 		if(ev.exit||(ev.mu&&!dover(b)&&!over(b)))modal_exit(-1),ev.mu=0
-		if(ev.dir&&dr.color&&v>=2)v=v-31
 		if(ev.dir=='left' )setv(((0|(v/grid.x))*grid.x)+((v+grid.x-1)%grid.x))
 		if(ev.dir=='right')setv(((0|(v/grid.x))*grid.x)+((v+       1)%grid.x))
 		if(ev.dir=='up'   )setv((v+(grid.x*(grid.y-1)))%(grid.x*grid.y))
 		if(ev.dir=='down' )setv((v+grid.x             )%(grid.x*grid.y))
-		if(ev.dir&&dr.color&&getv()>=2)setv(getv()+31)
 	}
 	else if(ms.type=='grid'){
 		const b=draw_modalbox(rect(120,160))
@@ -2049,7 +2097,7 @@ modals=_=>{
 		draw_text(rect(b.x,b.y+42,42,60),'Text',FONT_MENU,1)
 		ui_field(rect(b.x+42,b.y+20,b.w-42,18),ms.name)
 		const style=ls(ifield(f,'style'))
-		widget_field(null,{size:rect(b.x+42,b.y+40,b.w-42,88),font:p.font,show:'solid',scrollbar:1,border:1,style,align:p.align,locked:0},ms.text)
+		widget_field(null,{size:rect(b.x+42,b.y+40,b.w-42,88),font:p.font,show:'solid',scrollbar:1,border:1,style,align:p.align,locked:0,pattern:p.pattern},ms.text)
 		iwrite(f,lms('name' ),rtext_string(ms.name.table))
 		iwrite(f,lms('value'),ms.text.table),mark_dirty()
 		let border=lb(ifield(f,'border')), scrollbar=lb(ifield(f,"scrollbar")), cb=rect(b.x,b.y+80+60)
@@ -2065,7 +2113,8 @@ modals=_=>{
 		if(ui_radio(rint(rect(ab.x,ab.y,b.w/2,16)),'Center'     ,1,align=='center')){iwrite(f,lms('align'),lms('center')),mark_dirty()}ab.y+=16
 		if(ui_radio(rint(rect(ab.x,ab.y,b.w/2,16)),'Align Right',1,align=='right' )){iwrite(f,lms('align'),lms('right' )),mark_dirty()}ab.y+=16
 		const c=rect(b.x,b.y+b.h-20)
-		if(ui_button(rect(c.x,c.y,60,20),'Script...',1))setscript(f),modal_exit(0)
+		if(ui_button(rect(c.x,c.y,60,20),'Script...',1))setscript(f),modal_exit(0);c.x+=65
+		if(ui_button(rect(c.x,c.y,65,20),'Pattern...',1))ob.pending_pattern=p.pattern,modal_push('widpattern')
 		if(ui_button(rect(b.x+b.w-60,c.y,60,20),'OK',1)||ev.exit)modal_exit(1)
 	}
 	else if(ms.type=='slider_props'){
@@ -2128,7 +2177,7 @@ modals=_=>{
 		if(ui_checkbox(rint(rect(cb.x,cb.y,b.w/2,16)),'Grid Lines'    ,1,lines    )){lines    ^=1,iwrite(grid,lms('lines'    ),lmn(lines    )),mark_dirty()}cb.y+=16
 		if(ui_checkbox(rint(rect(cb.x,cb.y,b.w/2,16)),'Select by Cell',1,bycell   )){bycell   ^=1,iwrite(grid,lms('bycell'   ),lmn(bycell   )),mark_dirty()}cb.y+=16
 		const eb=rint(rect(b.x+(b.w/2),b.y+130+70))
-		if(ui_radio(rint(rect(eb.x,eb.y,b.w/2,16)),'Edit as JSON',1,ms.edit_json==1)){ms.form0=fieldstr(lms(fjson(monad.cols(val)))),ms.edit_json=1}eb.y+=16
+		if(ui_radio(rint(rect(eb.x,eb.y,b.w/2,16)),'Edit as JSON',1,ms.edit_json==1)){ms.form0=fieldstr(lms(flove(monad.cols(val)))),ms.edit_json=1}eb.y+=16
 		if(ui_radio(rint(rect(eb.x,eb.y,b.w/2,16)),'Edit as CSV' ,1,ms.edit_json==0))ms.form0=fieldstr(n_writecsv(count(format)?[val,format]:[val])),ms.edit_json=0
 		const c=rect(b.x,b.y+b.h-20), w=ll(ifield(grid,'widths'))
 		if(ui_button(rect(c.x,c.y,60,20),'Script...',1))modal_exit(0),setscript(grid);c.x+=65
@@ -2159,7 +2208,7 @@ modals=_=>{
 			if(ui_checkbox(rint(rect(b.x+b.w/2,b.y+20,b.w/2-19,16)),'With Transition',1,ms.act_trans))ms.act_trans^=1
 			if(ms.act_trans){
 				const gd=rint(rect(b.x+b.w/2,b.y+36,b.w/2,70))
-				if(ms.grid.scroll==-99){ms.grid.scroll=grid_scrollto(ms.grid.table,{size:gd,font:FONT_BODY,headers:0},-1,ms.grid.row)}
+				if(ms.grid.scroll==-99){ms.grid.scroll=grid_scrollto(tab_rowcount(ms.grid.table),{size:gd,font:FONT_BODY,headers:0},-1,ms.grid.row)}
 				ui_list(gd,ms.grid)
 				const pv=rpair(rect(b.x+b.w-17,b.y+20),ms.canvas.size), pi=image_make(ms.canvas.size)
 				ms.trans=dget(deck.transit,tab_cell(ms.grid.table,'value',ms.grid.row))
@@ -2207,11 +2256,11 @@ n_open=([type,hint])=>{
 	ms.verb=t=='array'?lms(t): hint?ls(hint):'';return r
 }
 n_save=([x,s])=>{
-	modal_enter('save_lil');x=x||NIL;ms.path_suffix=array_is(x)&&s?ls(s):''
+	modal_enter('save_lil');x=x||NIL;ms.path_suffix=array_is(x)&&s?ls(s):'',ms.hint=null
 	if(array_is(x)                                      )ms.desc='Save a binary file.'        ,ms.text=fieldstr(lms('untitled'+ms.path_suffix))
 	if(sound_is(x)                                      )ms.desc='Save a .wav sound file.'    ,ms.text=fieldstr(lms('sound.wav'))
 	if(deck_is(x)                                       )ms.desc='Save a .deck or .html file.',ms.text=fieldstr(lms('untitled.deck'))
-	if(image_is(x)||lid(x)||(lil(x)&&x.v.some(image_is)))ms.desc='Save a .gif image file.'    ,ms.text=fieldstr(lms('image.gif'))
+	if(image_is(x)||lid(x)||(lil(x)&&x.v.some(image_is)))ms.desc='Save a .gif image file.'    ,ms.text=fieldstr(lms('image.gif')),ms.hint=s?ll(s).map(ln):null
 	ms.verb=x;return NIL
 }
 n_alert=([t,p,x,y])=>{
@@ -2360,7 +2409,7 @@ keycaps=_=>{
 	else if(ms.type=='listen'){const c=frame.clip;frame.clip=rect(r.x,r.y,r.w,r.h+6);wid.count=0,listener(r),frame.clip=c}
 	else{
 		wid.count=wid.active
-		widget_field(wid.ft,{size:inset(r,5),font:wid.f.font,show:'solid',scrollbar:1,border:1,style:wid.f.style,align:wid.f.align,locked:0},wid.fv)
+		widget_field(wid.ft,{size:inset(r,5),font:wid.f.font,show:'solid',scrollbar:1,border:1,style:wid.f.style,align:wid.f.align,locked:0,pattern:wid.f.pattern},wid.fv)
 		ms.in_modal=0
 	}
 	const modes=soft_keyboard(inset(rect(r.x,r.y+r.h+1,r.w-2,frame.size.y-(r.y+r.h)),5))
@@ -2524,10 +2573,10 @@ bg_tools=_=>{
 	else if( dr.fatbits&&ev.mu&&ev.alt){dr.fatbits=0,bg_cancel();return}if(ev.alt)return
 	if(ev.md)pointer.prev=ev.pos
 	if(!dover(con_view_dim()))ev.md=ev.mu=ev.drag=0
+	if(ev.mdown){dr.pattern=ln(iwrite(con_image(),lmpair(ev.pos)))} // pipette
 	if(dr.tool=='pencil'||dr.tool=='line'||dr.tool=='rect'||dr.tool=='fillrect'||dr.tool=='ellipse'||dr.tool=='fillellipse'){
 		let clear=0;if(!dr.scratch)bg_scratch()
-		if(ev.mdown){dr.pattern=ln(iwrite(con_image(),lmpair(ev.pos)))} // pipette
-		else if(ev.md){bg_scratch(),dr.erasing=ev.rdown||ev.shift}
+		if(ev.md){bg_scratch(),dr.erasing=ev.rdown||ev.shift}
 		else if(ev.mu||ev.drag){
 			const t=frame;frame=draw_frame(dr.scratch)
 			if(dr.tool=='pencil'||dr.erasing){
@@ -3337,9 +3386,9 @@ all_menus=_=>{
 			const selection=wid.fv!=null&&wid.cursor.x!=wid.cursor.y
 			menu_bar('Text',selection&&wid.f.style!='plain')
 			if(wid.f.style=='rich'){
-				if(menu_item('Heading'    ,selection))field_stylespan(lms('menu'),lms(''))
-				if(menu_item('Body'       ,selection))field_stylespan(lms(''    ),lms(''))
-				if(menu_item('Fixed Width',selection))field_stylespan(lms('mono'),lms(''))
+				if(menu_item('Heading'    ,selection))field_fontspan(lms('menu'))
+				if(menu_item('Body'       ,selection))field_fontspan(lms(''    ))
+				if(menu_item('Fixed Width',selection))field_fontspan(lms('mono'))
 				if(menu_item('Link...'    ,selection))modal_push('link')
 			}
 			else if(wid.f.style=='code'){
@@ -3349,6 +3398,10 @@ all_menus=_=>{
 			}
 			if(wid.f&&wid.f.style!='code'){
 				if(menu_item('Font...',wid.f.style!='plain'))modal_push('fonts')
+				if(menu_item("Pattern...",wid.f&&wid.f.style!='plain')){
+					ob.pending_pattern=ln(tab_get(rtext_span(wid.fv.table,wid.cursor),'pat')[0])
+					modal_push('spanpattern')
+				}
 			}
 		}
 	}
@@ -3416,12 +3469,12 @@ all_menus=_=>{
 		if(menu_check('Show Widget Names'    ,1,ob.show_names  ))ob.show_names  ^=1
 		if(menu_check('Show Cursor Info'     ,1,ob.show_cursor ))ob.show_cursor ^=1
 		if(menu_check('Show Alignment Guides',1,ob.show_guides ))ob.show_guides ^=1
+		if(menu_check('Show Animation'       ,1,dr.show_anim   ))dr.show_anim   ^=1
 		menu_separator()
 		if(menu_check('Show Grid Overlay',1,dr.show_grid))dr.show_grid^=1
 		if(menu_check('Snap to Grid'     ,1,dr.snap     ))dr.snap     ^=1
 		if(menu_item('Grid and Scale...',1))modal_enter('grid')
 		menu_separator()
-		if(menu_check('Show Animation'   ,1,dr.show_anim ))dr.show_anim ^=1
 		if(menu_check('Transparency Mask',1,dr.trans_mask))dr.trans_mask^=1
 		if(menu_check('Fat Bits'         ,1,dr.fatbits   )){
 			if(ms.type==null&&uimode!='draw')setmode('draw')
@@ -3440,11 +3493,11 @@ all_menus=_=>{
 	}
 	if(uimode=='object'){
 		menu_bar('Widgets',ms.type==null)
-		if(menu_item('New Button...'     ,1))ob_create([lmd([lms('type')],[lms('button')])])
-		if(menu_item('New Field...'      ,1))ob_create([lmd([lms('type')],[lms('field' )])])
-		if(menu_item('New Slider...'     ,1))ob_create([lmd([lms('type')],[lms('slider')])])
-		if(menu_item('New Canvas...'     ,1))ob_create([lmd([lms('type')],[lms('canvas')])])
-		if(menu_item('New Grid...'       ,1))ob_create([lmd([lms('type')],[lms('grid'  )])])
+		if(menu_item('New Button',1))ob_create([lmd([lms('type')],[lms('button')])])
+		if(menu_item('New Field' ,1))ob_create([lmd([lms('type')],[lms('field' )])])
+		if(menu_item('New Slider',1))ob_create([lmd([lms('type')],[lms('slider')])])
+		if(menu_item('New Canvas',1))ob_create([lmd([lms('type')],[lms('canvas')])])
+		if(menu_item('New Grid'  ,1))ob_create([lmd([lms('type')],[lms('grid'  )])])
 		if(card_is(con())&&menu_item('New Contraption...',1))modal_enter('pick_contraption')
 		menu_separator()
 		if(menu_item('Order...'   ,count(ifield(con(),'widgets'))))modal_enter('orderwids')
@@ -3602,7 +3655,8 @@ tick=_=>{
 		iwrite(ob.sel[0],lms('pos'),lmpair(rsub(rsub(ev.pos,ob.prev),off))),mark_dirty()
 	}
 	document.title=ls(ifield(deck,'name')) || 'Untitled Deck'
-	for(let x=0;x<=1;x++)for(let y=0;y<=1;y++)draw_icon(rect(x*(context.size.x-5),y*(context.size.y-5)),CORNERS[x+y*2],1)
+	const ccolor=ln(ifield(deck,'corners'))
+	for(let x=0;x<=1;x++)for(let y=0;y<=1;y++)draw_icon(rect(x*(context.size.x-5),y*(context.size.y-5)),CORNERS[x+y*2],ccolor)
 	const used=interpret()
 	if(uimode=='interact'&&profiler){
 		const r=rect(frame.size.x-60,2,50,12), pal=deck.patterns.pal.pix
@@ -3734,6 +3788,7 @@ q('body').onkeyup=e=>{
 	if(e.key=='m'&&uimode=='draw'&&in_layer())ev.hidemenu^=1
 	if(e.key=='t'&&uimode=='draw'&&in_layer())dr.trans^=1
 	if(e.key=='u'&&uimode=='draw'&&in_layer())dr.under^=1
+	if(e.key=='r'&&uimode=='draw'&&in_layer())dr.trans_mask^=1
 	const brush_count=24+count(deck.brushes)
 	if(e.key=='9'&&uimode=='draw'&&ms.type==null)dr.brush=max(            0,dr.brush-1)
 	if(e.key=='0'&&uimode=='draw'&&ms.type==null)dr.brush=min(brush_count-1,dr.brush+1)
@@ -3793,12 +3848,12 @@ dopaste=x=>{
 		const i=image_read(x);if(i.size.x==0||i.size.y==0)return
 		if(wid.fv){
 			if(wid.f.style!='rich'){field_input(x)}
-			else{field_edit(lms(''),i,'i',wid.cursor)}
+			else{field_edit(lms(''),i,1,'i',wid.cursor)}
 		}else{setmode('draw'),bg_paste(i,0)}
 	}
 	else if(ms.type=='recording'&&au.mode=='stopped'&&/^%%SND0/.test(x)){sound_edit(sound_replace(sound_read(x)))}
 	else if(ms.type==null&&/^%%WGT0/.test(x)){
-		const v=pjson(x,6,x.length-6).value; let defs=dget(v,lms('d')),wids=dget(v,lms('w'));wids=wids?ll(wids):[]
+		const v=plove(x,6,x.length-6).value; let defs=dget(v,lms('d')),wids=dget(v,lms('w'));wids=wids?ll(wids):[]
 		merge_fonts(deck,dget(v,lms('f'))),merge_prototypes(deck,defs?ld(defs):lmd(),wids),ob_create(wids)
 	}
 	else if(ms.type==null&&/^%%CRD0/.test(x)){
@@ -3809,11 +3864,11 @@ dopaste=x=>{
 		if(wid.fv){
 			const t=rtext_decode(x)
 			if(wid.f.style=='rich'){field_editr(t,wid.cursor)}
-			else{field_input(ls(rtext_string(t)))}
+			else{field_input_raw(ls(rtext_string(t)))}
 		}
 	}
 	else if(wid.gv&&!wid.g.locked&&ms.type==null){grid_edit(n_readcsv([lms(x),lms(wid.g.format)]))}
-	else if(wid.fv){field_input(x)}
+	else if(wid.fv){field_input_raw(x)}
 }
 cutcard=_=>{const c=ifield(deck,'card');setclipboard(ls(deck_copy(deck,c))),deck_remove(deck,c),mark_dirty()}
 copycard=_=>{const c=ifield(deck,'card');setclipboard(ls(deck_copy(deck,c)))}

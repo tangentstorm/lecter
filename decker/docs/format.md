@@ -157,6 +157,7 @@ The Deck chunk contains a number of optional properties with metadata pertaining
 - `card`: an integer giving the index of the card which will be shown when the deck is opened. If this index is invalid, reset it to `0`.
 - `patterns`: an _Image Record_ representing a vertical strip of 28 8x8 patterns. Pattern 0 will always be overruled as "all white" and pattern 1 will always be overruled as "all black". If any of these patterns are modified, they will alter the appearance of Decker's UI pervasively. If this property is not provided, Decker will supply a default palette. Normally this will be a 8x224 image; if it is instead 8x230, the last 6 rows of the image contain a sequence of 16 records comprising a supplementary _color_ palette, each record consisting of a byte for a red channel, a byte for a green channel, and a byte for a blue channel.
 - `animations`: an array of four arrays, each of which may contain up to 256 integers. Each integer is an index to a pattern. These four sequences represent the animated patterns 28, 29, 30, and 31. Animation sequences may not themselves reference indices 28, 29, 30, or 31. If this property is not provided, Decker will supply default animation sequences: `[[13,9,5,1,5,9],[4,4,8,14,14,8],[18,18,20,19,19,20],[0,0,0,0,1,1,1,1]]`.
+- `corners`: an integer between 0 and 47 indicating the pattern index to use for drawing the rounded "corners" of a deck, when applicable. Default is `1` and a value of `0` suppresses drawing the corners entirely.
 
 The `{card:ID}` Chunk
 ---------------------
@@ -203,6 +204,7 @@ Each `type` of widget has its own additional optional fields:
 	- `shortcut`: a 0- or 1-character string; a keyboard key which can be used as an alternative to clicking this button to activate it. Shortcuts must be a lowercase letter (`a-z`), a digit (`0-9`), or a space character (` `).
 - `"field"`: Fields are the basic widget for storing information. They can contain "formatted" text or plain user-entered text, and may have a vertical scrollbar. Locked fields may also be useful for labels, headings, or displaying information computed by a script.
 	- `border`: an integer; draw an outline for the field? Default is `1`.
+	- `pattern`: an integer pattern index used for drawing text. Default is `1`.
 	- `scrollbar`: an integer; does this field have a scrollbar? Default is `0`. Note that without a visible scrollbar, it is still possible to scroll a field programmatically, or by dragging a selection.
 	- `style`: one of { `"rich"` (default), `"plain"`, `"code"` }. A `"rich"` field permits entry and editing of formatted text. A `"plain"` field is text-only, with a single font. A `"code"` field is likewise text-only, with some changes in behavior making the field more suitable as a code editor: tabbing does not leave the field, shift+`/` toggles Lil block comments, etc.
 	- `align`: one of { `"left"` (default), `"center"`, `"right"` }.
@@ -210,6 +212,7 @@ Each `type` of widget has its own additional optional fields:
 		- `text`: an array of strings.
 		- `font`: an array of strings referencing _font records_. An invalid or empty name indicates using the field's `font` property.
 		- `arg`:  an array of strings. Each is either an _image record_ (an inline image), an ordinary string (making this span a hyperlink), or an empty string (ordinary text).
+		- `pat`: an array of integers specifying a pattern for each span. If this column is absent, treat it as filled with pattern `1`.
 	- `scroll`: an integer; the scroll offset in rendered pixels.
 - `"slider"`: Sliders represent a single number constrained within a specified numeric interval.
 	- `style`: one of { `"horiz"` (default), `"vert"`, `"bar"`, `"compact"` }. A `"horiz"` or `"vert"` slider resembles a horizontal or vertical scrollbar, respectively. A `"bar"` has a much simpler appearance, and resembles a horizontal progress bar. A `"compact"` slider moves only in discrete ticks in response to left/right button presses, more like what some UI toolkits call a "spinner".
@@ -232,7 +235,7 @@ Each `type` of widget has its own additional optional fields:
 	- `bycell`: an integer; does this grid permit selection by cell, instead of simply by row? Default is `0`.
 	- `widths`: an array of up to 255 integers. How many pixels wide should each column be shown? If more columns exist than there are numbers in this array the remaining columns are automatically sized.
 	- `format`: a string consisting of a sequence of format type characters (as in the left argument to the Lil `format` operator) controlling how columns are displayed. If this string is not provided or not long enough for the table's columns, remaining columns are treated as strings (`s`). This format will also be applied to CSV data exported from the grid.
-	- `value`: a dictionary keyed by column names. Columns must be arrays, for which each item is recursively composed of _only_ arrays, dictionaries, strings, and numbers. Columns need not necessarily be of uniform types.
+	- `value`: a dictionary keyed by column names. Columns must be arrays, for which each item is recursively composed of valid LOVE values. Columns need not necessarily be of uniform types.
 	- `scroll`: an integer; the scroll offset in rows.
 	- `row`: an integer; the selected row index, or -1.
 	- `col`: an integer; the selected column index, or -1.
@@ -454,3 +457,11 @@ Changelog
 
 1.56:
 - Raised the maximum length of the `animations` sequences in the `{deck}` Chunk from 8 to 256.
+
+1.58:
+- Introduced the `field.pattern` field.
+- Rich text now includes a `pat` column specifying a pattern for text runs.
+
+1.59:
+- Relaxed the constraints on `grid.value` to permit any LOVE data in cells, including rich text.
+- Introduced the `corners` property to the `{deck}` section.
