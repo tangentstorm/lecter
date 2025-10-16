@@ -99,6 +99,7 @@ A number of shortcuts are available with any of the drawing tools selected:
 - Pressing `t` toggles transparency mode (_Style &#8594; Transparency_).
 - Pressing `u` toggles underpaint mode (_Style &#8594; Underpaint_).
 - Pressing `y` toggles tracing mode (_Style &#8594; Tracing Mode_).
+- Pressing `r` toggles transparency mask mode (_View &#8594; Transparency Mask_).
 - If you have imported a color image, you can press `j` or `k` to lighten or darken the image, respectively. This adjustment can only be performed while the box selection remains active.
 - Pressing `9` or `0` will decrement or increment the current brush shape, respectively.
 - Holding control or command while clicking will enter Fat Bits mode centered on the position you click, or exit Fat Bits mode.
@@ -253,12 +254,42 @@ Additionally, grids support a few special format codes:
 - `L`: Lock. Format as a plain string (like `s`), but do not allow the user to edit cells in this column.
 - `I`: Icon. Interpret the column as numeric and draw it using icons from the table below, and do not allow the user to edit cells in this column.
 - `B`: Boolean Icon. Interpret the column as boolean and draw it as a check icon (true) or no icon (false).
+- `t`: Rich text. Display the column as editable rtext cells. Note that links in rtext cells are not "clickable."
+- `T`: Rich text, Locked. Display the column as non-editable rtext cells. Note that links in rtext cells are not "clickable."
 
 ![](images/icons.gif)
 
 Numeric columns (format types `fcCihH`) are displayed right-aligned, and all other columns are displayed left-aligned.
 
 For example, a grid containing a table with four columns given the format string `sfL` would display the first column as strings (`s`), the second column as floating-point numbers (`f`), the third column as a "locked" string column that cannot be edited (`L`), and since the fourth column does not have a format character specified it would _implicitly_ be formatted as a string column.
+
+If a grid's table contains columns with certain "magic names", those columns will be hidden and the values in their cells will influence how the corresponding rows are drawn:
+
+- `_bg`: a column of [pattern indices](#patternsinterface) used to control the background pattern/color for each row.
+- `_fg`: a column of [pattern indices](#patternsinterface) used to control the foreground pattern/color for each row.
+- `_hideby`: a column of truthy or falsey values; where this is truthy, the grid widget will hide the corresponding row.
+
+With a little scripting, `_hideby` is a useful way of searching or filtering a grid without permanently removing rows from its table. Let's say we have a grid `mygrid` with string columns `name` and `notes` that we want to perform an infix search on based on the contents of a field. Our general approach will be to assemble a glob pattern (`p`) incorporating the search term (if any) and then compute a `_hideby` column that is truthy everywhere _neither_ of our source columns match the pattern. We can give the field a script something like the following:
+```lil
+on change do
+ p:"*%s*" format me.text
+ mygrid.value:update
+  _hideby:!(name  like p) |
+           (notes like p)
+ from mygrid.value
+end
+```
+To make this case-_insensitive_, we can convert the search term and source columns into lowercase before using `like`:
+```lil
+on change do
+ p:"*%l*" format me.text
+ mygrid.value:update
+  _hideby:!(((list "%l") format name ) like p) |
+           (((list "%l") format notes) like p)
+ from mygrid.value
+end
+```
+If you're ever unsure that you're computing `_hideby` correctly, try converting it into a `_bg` so you can see the rows highlighted in context.
 
 The grid properties dialog displays the contents of the grid's table encoded as JSON or CSV, and allows it to be edited directly. In JSON mode, tables will initially be shown as an object containing columns as lists (as given by the Lil `cols` operator), but the dialog also _accepts_ a list of objects or a list of lists (as accepted by the Lil `table` operator). In CSV mode, the table will be parsed and displayed based on the table's format string, if any. Switching modes will parse the table under the current representation and then re-format in the new representation.
 
@@ -531,7 +562,7 @@ If an image contains transparent pixels, they will be read as pattern 0.
 12) `write[x hint]` recognizes several types of Lil value and will serialize each appropriately:
 - _array interfaces_ are written as binary files. If `hint` is provided, use it as the file extension (for example `".png"`).
 - _sound interfaces_ are written as a .WAV audio file, and a `.wav` extension will be appended to any filename without it.
-- _image interfaces_ are written as GIF89a images, and a `.gif` extension will be appended to any filename without it.
+- _image interfaces_ are written as GIF89a images, and a `.gif` extension will be appended to any filename without it. By default, writing out an image will use Decker's current display palette. If `hint` is provided, it can specify a palette for the image as a list of up to 256 24-bit `RRGGBB` colors represented as integers. An explicit palette will translate the pixel values of the image "raw" through the palette, instead of interpreting 1-bit patterns and animated patterns as they are normally displayed within Decker. A value of `-1` in the palette can be used to represent transparency.
 - _deck interfaces_ are written as decks.
 - A list of _image interfaces_ is written as an animated gif.
 - A dictionary is written as an animated gif. The dictionary should contain the keys `frames` (a list of _image interfaces_) and `delays` (a list of integers representing interframe delays in 1/100ths of a second).
@@ -661,7 +692,7 @@ RText Interface
 ---------------
 Rich text is a series of "runs" of text, each with its own formatting. Runs may contain a hyperlink or even an inline image. The field widget, `alert[]`, and canvas drawing functions understand rich text in addition to plain strings.
 
-Rich text is represented as a table with columns `text`, `font`, and `arg`. The `text` column contains the text to draw for each run. The `font` column contains the name of the font for each run. If a `font` cell is not the name of a valid font, the run will use a default font instead. The `arg` column determines how each run will be drawn:
+Rich text is represented as a table with columns `text`, `font`, `arg`, and `pat`. The `text` column contains the text to draw for each run. The `font` column contains the name of the font for each run. If a `font` cell is not the name of a valid font, the run will use a default font instead. The `pat` column specifies the index of a [pattern](#patternsinterface) for drawing the run. If the `pat` column is missing or contains invalid indices, the run will use pattern `1` instead. The `arg` column determines how each run will be drawn:
 
 - if `arg` is an [image interface](#imageinterface), ignore the `text` and draw the image inline.
 - if `arg` is a non-zero-length string, the run is a hyperlink. Hyperlinks are clickable if the field is `locked`, and clicking them will produce a `link` event with the contents of the corresponding `arg`.
@@ -669,22 +700,22 @@ Rich text is represented as a table with columns `text`, `font`, and `arg`. The 
 
 The _rtext_ interface contains a number of helper routines for building and manipulating rtext tables. It is available as a global constant named `rtext`.
 
-| Name                         | Description                                                                       |
-| :--------------------------- | :-------------------------------------------------------------------------------- |
-| `typeof rtext`               | `"rtext"`                                                                         |
-| `rtext.end`                  | The end position of any rtext table.                                              |
-| `rtext.make[text font arg]`  | Make a new single-row rtext table from `text`. `font` and `arg` are optional.     |
-| `rtext.len[table]`           | The number of character positions in the text content of `table`.                 |
-| `rtext.get[table x]`         | The row number of `table` containing character position `x`, or -1.               |
-| `rtext.index[table (l,c)]`   | The character position of line `l` and column `c` of the text content of `table`. |
-| `rtext.string[table (x,y)]`  | The text content of `table` between character positions `x` and `y`.              |
-| `rtext.span[table (x,y)]`    | An rtext subtable containing content between character positions `x` and `y`.     |
-| `rtext.split[delim table]`   | Break an rtext into a list of tables at instances of a delimiter string `delim`.  |
-| `rtext.replace[table x y i]` | Replace every instance in `table` of `x` with `y`. If `i`, ignore case.           |
-| `rtext.find[table x i]`      | Find every instance in `table` of `x`. If `i`, ignore case.                       |
-| `rtext.cat[...x]`            | Concatenate rtext tables sequentially. Accepts any number of arguments.           |
+| Name                            | Description                                                                       |
+| :------------------------------ | :-------------------------------------------------------------------------------- |
+| `typeof rtext`                  | `"rtext"`                                                                         |
+| `rtext.end`                     | The end position of any rtext table.                                              |
+| `rtext.make[text font arg pat]` | Make a new single-row rtext table from `text`. `font`, `arg`, `pat` are optional. |
+| `rtext.len[table]`              | The number of character positions in the text content of `table`.                 |
+| `rtext.get[table x]`            | The row number of `table` containing character position `x`, or -1.               |
+| `rtext.index[table (l,c)]`      | The character position of line `l` and column `c` of the text content of `table`. |
+| `rtext.string[table (x,y)]`     | The text content of `table` between character positions `x` and `y`.              |
+| `rtext.span[table (x,y)]`       | An rtext subtable containing content between character positions `x` and `y`.     |
+| `rtext.split[delim table]`      | Break an rtext into a list of tables at instances of a delimiter string `delim`.  |
+| `rtext.replace[table x y i]`    | Replace every instance in `table` of `x` with `y`. If `i`, ignore case.           |
+| `rtext.find[table x i]`         | Find every instance in `table` of `x`. If `i`, ignore case.                       |
+| `rtext.cat[...x]`               | Concatenate rtext tables sequentially. Accepts any number of arguments.           |
 
-Dictionary arguments to `rtext.cat[]` are promoted to tables, Image interfaces are turned into inline image spans, and any other arguments which are not already tables will be interpreted as strings and converted to text runs as by `rtext.make[x "" ""]`. Thus, with a single argument, `rtext.cat[]` can be used to _cast_ values to properly formed rtext tables. Sequential rows with matching `font` and (non-image) `arg` values will be coalesced together, and rows with empty `text` spans will be dropped.
+Dictionary arguments to `rtext.cat[]` are promoted to tables, Image interfaces are turned into inline image spans, and any other arguments which are not already tables will be interpreted as strings and converted to text runs as by `rtext.make[x "" ""]`. Thus, with a single argument, `rtext.cat[]` can be used to _cast_ values to properly formed rtext tables. Sequential rows with matching `font`, `pat`, and (non-image) `arg` values will be coalesced together, and rows with empty `text` spans will be dropped.
 
 Note that `rtext.index[]` measures lines and columns from 0, and only treats newline characters (`\n`) as starting a new line. In practice, rich text may additionally be word-wrapped to fit a field or other region, so _logical_ lines supplied here do not necessarily correspond to _visible_ lines as drawn with word-wrap.
 
@@ -723,6 +754,7 @@ The deck interface represents the global attributes of a Decker document. The op
 | `x.locked`        | Bool. Is this deck _locked_ (editing and drawing mode disabled)? r/w.                       |
 | `x.name`          | String. A descriptive title for the deck. r/w.                                              |
 | `x.author`        | String. The name of the author of the deck. r/w.                                            |
+| `x.corners`       | Number. The pattern index for drawing the "corners" of the deck, when applicable. r/w.      |
 | `x.script`        | String. The Lil source code of the deck's script, or `""`. r/w.                             |
 | `x.patterns`      | An instance of the _patterns_ interface.                                                    |
 | `x.sounds`        | A dictionary of _sound_ interfaces stored in this deck, keyed by name.                      |
@@ -1107,6 +1139,7 @@ The field widget displays and possibly allows the editing of text.
 | `x.value`               | Table. The rtext content of this field. r/w.                                                          |
 | `x.scroll`              | Int. The number of pixels the viewport of the field is scrolled down. r/w.                            |
 | `x.border`              | Bool. Draw an outline around this widget? r/w.                                                        |
+| `x.pattern`             | Int. Pattern used for displaying text. r/w.                                                           |
 | `x.scrollbar`           | Bool. Draw a scrollbar for this widget? r/w.                                                          |
 | `x.style`               | The style of field; one of {`"rich"`, `"plain"`, `"code"`}. r/w.                                      |
 | `x.align`               | The text alignment of the field; one of {`"left"`, `"center"`, `"right"`}. r/w.                       |
@@ -1240,6 +1273,7 @@ The canvas will scale _up_ logical pixels to display them on the card (resulting
 | `x.copy[pos size a]`    | Grab an _image_ at `pos`/`size`.                                                                                  |
 | `x.paste[img pos t]`    | Draw an _image_ at `pos`. If `t` is truthy, treat pattern 0 as transparent.                                       |
 | `x.segment[img rect m]` | Draw an _image_ scaled to fit `rect`, based on margins `m`. Treat pattern 0 as transparent.                       |
+| `x.outline[p]`          | Set pattern-0 pixels to pattern `p` when orthogonally adjacent to nonzero pixels.                                 |
 | `x.event[n ...x]`       | Issue an event named `n` at this widget with argument(s) `x`.                                                     |
 | `x.toggle[s v]`         | Toggle visibility of this widget between compositing mode `"none"` and `s`, iff `v`. (See [Button Interface](#buttoninterface)) |
 
@@ -1415,7 +1449,7 @@ Events are as follows:
 | grid        | `click`      | Row number.                                  | The user selects a row in the grid.                            |
 | grid        | `order`      | Column name as a string.                     | The user clicks a header cell on the grid.                     |
 | grid        | `change`     | `grid.value` (table).                        | The user alters the data in the the grid.                      |
-| grid        | `changecell` | Replacement value (string).                  | The user edits a cell in the grid.                             |
+| grid        | `changecell` | Replacement value (string or rtext).         | The user edits a cell in the grid.                             |
 | canvas      | `click`      | `pos` on the canvas.                         | The user depresses their pointing device on a canvas.          |
 | canvas      | `drag`       | `pos` on the canvas.                         | The user moves their pointing device while held on a canvas.   |
 | canvas      | `release`    | `pos` on the canvas.                         | The user releases their pointing device on a canvas.           |
@@ -1468,7 +1502,7 @@ end
 
 on changecell x do
 	f:me.format[me.col] f:if count f f else "s" end
-	me.cellvalue:("%%%l" format f) parse x
+	me.cellvalue:if "t"~f x else ("%%%l" format f) parse x end
 	me.event["change" me.value]
 end
 
@@ -1767,7 +1801,7 @@ end
 ```
 it would be equivalent to the first example!
 
-The `go[card]` method of animation is convenient, but it still requires us to write a card-level script. Furthermore, this method cannot be used from within a contraption, as contraption prototype scripts do not have access to the deck or the current card. There's one more option: the `animated` property. Any widget can be flagged as `animated` from the _Widgets_ menu. Animated widgets are automatically sent a `view` event on every frame so long as the card they appear on is visible. If we make our canvas "animated", it will only need the following script:
+The `go[card]` method of animation is convenient, but it still requires us to write a card-level script. There's one more option: the `animated` property. Any widget can be flagged as `animated` from the _Widgets_ menu. Animated widgets are automatically sent a `view` event on every frame so long as the card they appear on is visible. If we make our canvas "animated", it will only need the following script:
 ```lil
 on view do
  pinwheel[sys.frame]
@@ -1826,10 +1860,11 @@ It is also possible to install new brushes using the `brush[]` function. This ca
 - `brush[function]`: define a _functional brush_, with a name corresponding to the name of the supplied function.
 - `brush[]`: retrieve a dictionary of custom brushes, keyed by name.
 
-Static brushes work like the built-in brushes: as a line is drawn, the mask is continuously "stamped" along it. Functional brushes call the supplied function repeatedly, and each time it should return a mask image. Functional brushes _must_ complete their work _very quickly_: if they exceed a brief quota, they will be halted prematurely, and nothing will be drawn. Likewise, if the function returns anything that is not an image, nothing will be drawn at that step. A brush function is called with two arguments:
+Static brushes work like the built-in brushes: as a line is drawn, the mask is continuously "stamped" along it. Functional brushes call the supplied function repeatedly, and each time it should return a mask image. Functional brushes _must_ complete their work _very quickly_: if they exceed a brief quota, they will be halted prematurely, and nothing will be drawn. Likewise, if the function returns anything that is not an image, nothing will be drawn at that step. A brush function is called with three arguments:
 
 - `delta`: a pair of numbers indicating the `(x,y)` offset of the current line's end from its origin. This can be used to determine the magnitude of the line, its direction, or both. 
 - `newLine`: a boolean; `1` for the first call of a new line, otherwise `0`.
+- `pos`: a pair of numbers indicating the `(x,y)` offset of the current "stamp" relative to the target card or canvas.
 
 An example static brush:
 ```lil
@@ -1938,16 +1973,16 @@ If you compile Native-Decker from source using the `DANGER_ZONE` flag, you can e
 
 When enabled, the _danger_ interface is available as a global constant named `danger`:
 
-| Name                     | Description                                                                                 |
-| :----------------------- | :------------------------------------------------------------------------------------------ |
-| `typeof danger`          | `"danger"`                                                                                  |
-| `danger.env`             | A dictionary of environment variable keys and their string values. Read-only.               |
-| `danger.homepath`        | A string containing the path to the user's home directory. Read-only.                       |
-| `danger.dir[path]`       | List the content of a directory as a table of `dir`, `name`, `type`.                        |
-| `danger.path[x y]`       | Canonical path `x` (joined with `y`, if given).                                             |
-| `danger.shell[x]`*       | Execute string `x` as a shell command and block for its completion.                         |
-| `danger.read[path hint]` | Read a file `path` using `hint` as necessary to control its interpretation.                 |
-| `danger.write[path x]`   | Write a value `x` to a file `path`. Returns `1` on success.                                 |
+| Name                        | Description                                                                                 |
+| :-------------------------- | :------------------------------------------------------------------------------------------ |
+| `typeof danger`             | `"danger"`                                                                                  |
+| `danger.env`                | A dictionary of environment variable keys and their string values. Read-only.               |
+| `danger.homepath`           | A string containing the path to the user's home directory. Read-only.                       |
+| `danger.dir[path]`          | List the content of a directory as a table of `dir`, `name`, `type`.                        |
+| `danger.path[x y]`          | Canonical path `x` (joined with `y`, if given).                                             |
+| `danger.shell[x]`*          | Execute string `x` as a shell command and block for its completion.                         |
+| `danger.read[path hint]`    | Read a file `path` using `hint` as necessary to control its interpretation.                 |
+| `danger.write[path x hint]` | Write a value `x` to a file `path`. Returns `1` on success.                                 |
 
 
 The `danger.path[]` function can perform a number of useful operations:

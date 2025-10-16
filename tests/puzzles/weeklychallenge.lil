@@ -24,6 +24,126 @@ on maxscan   x do a:0 each v in x a:a|v end                         end # k: |\
 
 # the problems:
 
+problem[338.1]
+# find the maximum row-sum in a matrix
+on f x do max sum @ x end
+assert[f["%J" parse "[[4,4,4,4],[10,0,0,0],[2,2,2,9]]"] 16]
+assert[f["%J" parse "[[1,5],[7,3],[3,5]]"] 10]
+assert[f["%J" parse "[[1,2,3],[3,2,1]]"] 6]
+assert[f["%J" parse "[[2,8,7],[7,1,3],[1,9,5]]"] 17]
+assert[f["%J" parse "[[10,20,30],[5,5,5],[0,100,0],[25,25,25]]"] 100]
+
+problem[338.2]
+# find the maximum difference between any pair of values from x and y
+on f x y do max mag @ raze x - list y end
+assert[f[(4,5,7)    (9,1,3,4)    ] 6]
+assert[f[(2,3,5,4)  (3,2,5,5,8,7)] 6]
+assert[f[(2,1,11,3) (2,5,10,2)   ] 9]
+assert[f[(1,2,3)    (3,2,1)      ] 2]
+assert[f[(1,0,2,3)  (5,0)        ] 5]
+
+problem[332.2]
+# do all letters in x appear an odd number of times?
+on f x do min extract 2%count value by value from x end
+assert[f["weekly"   ] 0]
+assert[f["perl"     ] 1]
+assert[f["challenge"] 0]
+assert[f["abcabcabc"] 1]
+
+problem[323.1]
+# perform a sequence of operations on a variable
+on f x do sum (("++x","x++","--x","x--")dict 1,1,-1,-1)@x end
+assert[f[("--x","x++","x++"      )] 1]
+assert[f[("x++","++x","x++"      )] 3]
+assert[f[("x++","++x","--x","x--")] 0]
+
+problem[321.2]
+# are x and y equal if # is backspace?
+on f x y do
+ on n x do
+  r:() each c in x
+   r:if c~"#" 1 drop r else c,r end
+  end r
+ end
+ n[x]~n[y]
+end
+assert[f["ab#c" "ad#c"] 1]
+assert[f["ab##" "a#b#"] 1]
+assert[f["a#b"  "c"   ] 0]
+
+problem[322.1]
+# format letters in x in groups of size i
+on f x i do
+  "-" fuse rev[rev @ i window rev["-" drop x]]
+end
+assert[f["ABC-D-E-F" 3] "ABC-DEF"]
+assert[f["A-BC-D-E"  2] "A-BC-DE"]
+assert[f["-A-B-CD-E" 4] "A-BCDE" ]
+
+problem[310.1]
+# find the common elements to all of the subarrays of x
+on f x do a:first x each v in x a:v take a end a end
+assert[f["%j" parse "[[1, 2, 3, 4], [4, 5, 6, 1], [4, 2, 1, 3]]"] (1,4)]
+assert[f["%j" parse "[[1, 0, 2, 3], [2, 4, 5]                 ]"] (list 2)]
+assert[f["%j" parse "[[1, 2, 3], [4, 5], [6]                  ]"] ()]
+
+problem[310.2]
+# sort odd index elements in decreasing order and even index elements in increasing order
+on f x do
+ t:flip 2 window x
+ (count x) take raze flip
+  (list extract orderby value asc  from t[0]),
+  (list extract orderby value desc from t[1])
+end
+assert[f[(4, 1, 2, 3   )] (2, 3, 4, 1   )]
+assert[f[(3, 1         )] (3, 1         )]
+assert[f[(5, 3, 2, 1, 4)] (2, 3, 4, 1, 5)]
+
+problem[309.1]
+# x is a list of ascending elements
+# the element of x before which you find the smallest gap
+on f x do
+ m:(1 drop x)-x
+ first extract where 0,m=min m from x
+end
+assert[f[(2, 8, 10, 11, 15)] 11]
+assert[f[(1, 5, 6, 7, 14  )]  6]
+assert[f[(8, 20, 25, 28   )] 28]
+
+problem[309.2]
+# find the minimum difference between any two elements
+# (note: i assume here that elements are distinct!)
+on f x do
+  min extract c0-c1 where c0>c1 from table x cross x
+end
+assert[f[(1, 5, 8, 9)] 1]
+assert[f[(9, 4, 1, 7)] 2]
+
+problem[308.1]
+# count the items in common between lists x and y
+on f x y do count x take y end
+assert[f[("perl", "weekly", "challenge") ("raku", "weekly", "challenge")] 2]
+assert[f[("perl", "raku", "python")      ("python", "java")             ] 1]
+assert[f[("guest", "contribution")       ("fun", "weekly", "challenge") ] 0]
+
+problem[306.1]
+# sum of all odd-length subarrays of x
+on f x do
+ sum each n in - 1+2*range .5+.5*count x
+  sum sum @ n window x
+ end
+end
+assert[f[(2, 5, 3, 6, 4)] 77]
+assert[f[(1, 3         )]  4]
+
+problem[305.2]
+# sort strings x according to an alphabet a
+on f a x do
+ extract orderby (a dict range count a)@@value asc from x
+end
+assert[f["hlabydefgirkmnopqjstuvwxcz" ("perl","python","raku"    )] ("raku","python","perl"    )]
+assert[f["corldabtefghijkmnpqswuvxyz" ("the","weekly","challenge")] ("challenge","the","weekly")]
+
 problem[296.1]
 # compress the string x with run-length encoding
 on f x do
