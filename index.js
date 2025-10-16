@@ -3,24 +3,25 @@ const path = require('path');
 const START_DECK = 'lecter-deck.html'
 
 function createWindow () {
-  const mainWindow = new BrowserWindow({
+  const win = new BrowserWindow({
     width: 1920,
     height: 1080,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       nodeIntegration: true,
-      contextIsolation: false
+      contextIsolation: true
     }
   });
 
-  mainWindow.loadFile(START_DECK);
+  win.loadFile(START_DECK);
+  const ejs = js=>win.webContents.executeJavaScript(js)
 
   // Open the DevTools.
-  mainWindow.webContents.openDevTools();
+  win.webContents.openDevTools();
 
-  mainWindow.webContents.on('did-finish-load', async () => {
-    await mainWindow.webContents.executeJavaScript('toolbars_enable=1;dr.color=1;resize();');
-    mainWindow.webContents.send('decker:endanger');
+  win.webContents.on('did-finish-load', async () => {
+    await ejs('toolbars_enable=1;dr.color=1;resize();');
+    await ejs('endanger()')
   });
 }
 
